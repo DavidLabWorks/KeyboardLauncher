@@ -45,7 +45,7 @@ Windows 配置：`%LOCALAPPDATA%\KeyboardLauncher\config.json`。
 
 首次启动会从旧 `%LOCALAPPDATA%\Launchpick\config.json` 复制配置（如果新路径不存在），保留旧文件。旧名称只用于兼容迁移。
 
-沿用字段 `shortcut`、`doubleTapKey`、`suppressSystemShortcut`、`launchers`，以及绑定的 `keyIndex`、`name`、`exec`、`icon`、`keyboardShortcut`。Windows 的 `doubleTapKey` 为 `control` 或 `null`；扩展 `theme`、`actionType`（`application` / `url` / `command`）和 `arguments`。
+沿用字段 `shortcut`、`doubleTapKey`、`suppressSystemShortcut`、`launchers`，以及绑定的 `keyIndex`、`name`、`exec`、`icon`、`keyboardShortcut`。Windows 的 `doubleTapKey` 支持 `control`、`alt`、`shift`，也支持 `leftControl` / `rightControl`、`leftAlt` / `rightAlt`、`leftShift` / `rightShift`；`null` 表示关闭；扩展 `theme`、`actionType`（`application` / `url` / `command`）和 `arguments`。
 
 ```json
 {
@@ -79,7 +79,7 @@ Windows 配置：`%LOCALAPPDATA%\KeyboardLauncher\config.json`。
 
 发送快捷键前等待实体按键释放，激活原窗口，并再次确认焦点。Windows UIPI 不允许普通权限应用向管理员权限应用发送输入，失败会提示。不会自动提升客户端权限。
 
-当前使用非 MSIX、自包含目录部署。尚未包含安装器、代码签名、自动更新、商店应用完整目录扫描或快捷键录制器；快捷键在设置中输入，失焦自动保存。应用文件图标使用 Windows 缩略图接口读取。Windows 材质在系统不支持或关闭透明效果时采用系统回退。
+当前使用非 MSIX、自包含目录部署。尚未包含安装器、代码签名、自动更新或商店应用完整目录扫描。快捷键支持在设置和动作编辑中点击录入，录入期间拦截按键以避免触发其他应用；设置失焦后自动保存。应用文件图标使用 Windows 缩略图接口读取。Windows 材质在系统不支持或关闭透明效果时采用系统回退。
 
 ## 视觉与主题回归
 
@@ -89,7 +89,7 @@ Windows 配置：`%LOCALAPPDATA%\KeyboardLauncher\config.json`。
 
 运行 `KeyboardLauncher.exe --theme-smoke-test` 可验证六次主题切换及面板显示/隐藏，报告写入程序目录的 `theme-smoke-test.txt`，完成后退出，不保存测试主题。请先退出正在运行的客户端。`--settings` 直接打开设置。
 
-已在 Windows ARM64 验证主题切换、面板与设置窗口，并通过 8 项核心回归检查；ARM64 / x64 均编译通过。x64 尚未在独立 x64 设备运行验收。
+已在 Windows ARM64 验证主题切换、面板与设置窗口，并通过 11 项核心回归检查；ARM64 / x64 均编译通过。x64 尚未在独立 x64 设备运行验收。
 
 `--control-smoke-test` 使用带测试标记的输入验证左右 Control 双击经过全局键盘钩子后各唤起一次，报告写入程序目录的 `control-smoke-test.txt`；不会保存测试配置。需要先退出已运行实例。
 
