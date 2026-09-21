@@ -1,0 +1,8 @@
+* text=auto
+*.swift text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.cs text eol=lf
+*.csproj text eol=lf
+*.sln text eol=crlf
+*.ps1 text eol=crlf
