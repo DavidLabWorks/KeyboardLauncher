@@ -11,17 +11,17 @@ internal static class ActionRunner
         if (!string.IsNullOrWhiteSpace(launcher.KeyboardShortcut))
         {
             var hotkey = Hotkey.Parse(launcher.KeyboardShortcut, false);
-            if (previousWindow == 0 || !Native.IsWindow(previousWindow)) throw new InvalidOperationException("原应用窗口已关闭，请先切换到目标应用再打开启动器。");
+            if (previousWindow == 0 || !Native.IsWindow(previousWindow)) throw new InvalidOperationException(L.T("原应用窗口已关闭，请先切换到目标应用再打开启动器。"));
             // Wait for the physical launcher key, mouse button and modifiers to be released.
             var deadline = Environment.TickCount64 + 2000;
             while (hasPressedKeys?.Invoke() == true || Enumerable.Range(1, 254).Any(Native.Down))
             {
-                if (Environment.TickCount64 >= deadline) throw new InvalidOperationException("按键仍未释放，已取消发送快捷键。");
+                if (Environment.TickCount64 >= deadline) throw new InvalidOperationException(L.T("按键仍未释放，已取消发送快捷键。"));
                 await Task.Delay(20);
             }
-            if (!Native.ActivatePanel(previousWindow)) throw new InvalidOperationException("无法激活原应用，已取消发送快捷键。");
+            if (!Native.ActivatePanel(previousWindow)) throw new InvalidOperationException(L.T("无法激活原应用，已取消发送快捷键。"));
             await Task.Delay(100);
-            if (Native.GetForegroundWindow() != previousWindow) throw new InvalidOperationException("焦点已改变，已取消发送快捷键。");
+            if (Native.GetForegroundWindow() != previousWindow) throw new InvalidOperationException(L.T("焦点已改变，已取消发送快捷键。"));
             var keys = new List<ushort>();
             if ((hotkey.Modifiers & 2) != 0) keys.Add(0xA2);
             if ((hotkey.Modifiers & 1) != 0) keys.Add(0xA4);
@@ -35,7 +35,7 @@ internal static class ActionRunner
                 // Release only keys whose down events were actually injected.
                 var releases = keys.Take((int)Math.Min(sent, (uint)keys.Count)).Reverse().Select(k => MakeInput(k, true)).ToArray();
                 if (releases.Length > 0) Native.SendInput((uint)releases.Length, releases, Marshal.SizeOf<Native.Input>());
-                throw new InvalidOperationException("Windows 阻止了快捷键发送。普通权限客户端无法向管理员权限应用注入按键。");
+                throw new InvalidOperationException(L.T("Windows 阻止了快捷键发送。普通权限客户端无法向管理员权限应用注入按键。"));
             }
             return;
         }

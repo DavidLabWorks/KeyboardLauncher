@@ -32,7 +32,7 @@ public readonly record struct Hotkey(uint Modifiers, uint Key)
             0x22 => "pagedown", 0x25 => "left", 0x26 => "up", 0x27 => "right", 0x28 => "down",
             0xBD => "-", 0xBB => "=", 0xDB => "[", 0xDD => "]", 0xBA => ";", 0xDE => "'",
             0xBC => ",", 0xBE => ".", 0xBF => "/", 0xDC => ((char)92).ToString(), 0xC0 => "`",
-            _ => throw new FormatException("暂不支持这个按键，请录入其他组合。")
+            _ => throw new FormatException(L.T("暂不支持这个按键，请录入其他组合。"))
         });
         return string.Join("+", parts);
     }
@@ -49,8 +49,8 @@ public readonly record struct Hotkey(uint Modifiers, uint Key)
         foreach (var token in value.ToLowerInvariant().Split('+').Select(x => x.Trim()))
         {
             uint mod = token switch { "ctrl" or "control" => 2, "alt" => 1, "shift" => 4, "win" or "windows" => 8, _ => 0 };
-            if (mod != 0) { if ((modifiers & mod) != 0) throw new FormatException("修饰键重复。"); modifiers |= mod; continue; }
-            if (key != 0) throw new FormatException("快捷键只能包含一个普通按键。");
+            if (mod != 0) { if ((modifiers & mod) != 0) throw new FormatException(L.T("修饰键重复。")); modifiers |= mod; continue; }
+            if (key != 0) throw new FormatException(L.T("快捷键只能包含一个普通按键。"));
             key = token switch
             {
                 "space" => 0x20, "enter" or "return" => 0x0D, "tab" => 9, "escape" or "esc" => 0x1B,
@@ -60,10 +60,10 @@ public readonly record struct Hotkey(uint Modifiers, uint Key)
                 "," => 0xBC, "." => 0xBE, "/" => 0xBF, "\\" => 0xDC, "`" => 0xC0,
                 _ when token.Length == 1 && char.IsAsciiLetterOrDigit(token[0]) => char.ToUpperInvariant(token[0]),
                 _ when token.StartsWith('f') && int.TryParse(token[1..], out var f) && f is >= 1 and <= 24 => (uint)(0x70 + f - 1),
-                _ => throw new FormatException($"无法识别按键：{token}。Windows 键请使用 win，Control 请使用 ctrl。")
+                _ => throw new FormatException(L.F("无法识别按键：{0}。Windows 键请使用 win，Control 请使用 ctrl。", token))
             };
         }
-        if (key == 0 || (requireModifier && modifiers == 0)) throw new FormatException("唤起快捷键需要修饰键和一个普通按键。");
+        if (key == 0 || (requireModifier && modifiers == 0)) throw new FormatException(L.T("唤起快捷键需要修饰键和一个普通按键。"));
         return new(modifiers, key);
     }
 }

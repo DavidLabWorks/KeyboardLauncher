@@ -25,6 +25,7 @@ internal sealed class PanelWindow : Window
     private Native.Point dragStart;
     private PointInt32 dragWindowStart;
     private int page;
+    private Action refreshLanguage = () => { };
     public nint Handle { get; }
 
     public PanelWindow(App app)
@@ -88,19 +89,19 @@ internal sealed class PanelWindow : Window
         header.Children.Add(title);
         var settings = new PointerButton { Content = new FontIcon { Glyph = "\uE713", FontSize = 19 }, Width = 42, Height = 38, Padding = new Thickness(0), CornerRadius = new CornerRadius(10), VerticalAlignment = VerticalAlignment.Center };
         Ui.GlassButton(settings, false);
-        ToolTipService.SetToolTip(settings, "设置");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(settings, "设置");
+        ToolTipService.SetToolTip(settings, L.T("设置"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(settings, L.T("设置"));
         settings.Click += (_, _) => app.OpenSettings(); Grid.SetColumn(settings, 1); header.Children.Add(settings);
         root.Children.Add(header); Grid.SetRow(rows, 1); root.Children.Add(rows);
         var footer = new Grid(); footer.ColumnDefinitions.Add(new()); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        footer.Children.Add(new TextBlock { Text = "⌨  点击空键绑定 · 右键编辑 · 按键或点击启动", Opacity = .65, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        var footerHint = new TextBlock { Text = L.T("⌨  点击空键绑定 · 右键编辑 · 按键或点击启动"), Opacity = .65, FontSize = 11, VerticalAlignment = VerticalAlignment.Center }; footer.Children.Add(footerHint);
         var paging = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         previous = new PointerButton { Content = "←" }; next = new PointerButton { Content = "→" };
         Ui.GlassButton(previous, false); Ui.GlassButton(next, false);
         previous.Click += (_, _) => ChangePage(-1); next.Click += (_, _) => ChangePage(1);
-        ToolTipService.SetToolTip(previous, "上一页（←）"); ToolTipService.SetToolTip(next, "下一页（→）");
+        ToolTipService.SetToolTip(previous, L.T("上一页（←）")); ToolTipService.SetToolTip(next, L.T("下一页（→）"));
         paging.Children.Add(previous); paging.Children.Add(pageLabel); paging.Children.Add(next);
-        paging.Children.Add(new TextBlock { Text = "Esc  关闭", FontSize = 11, Opacity = .65, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        var closeHint = new TextBlock { Text = L.T("Esc  关闭"), FontSize = 11, Opacity = .65, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center }; paging.Children.Add(closeHint);
         Grid.SetColumn(paging, 1); footer.Children.Add(paging); Grid.SetRow(footer, 2); root.Children.Add(footer);
         root.Width = 1040; root.Height = 560;
         Content = new Viewbox { Child = new Border { Child = root, CornerRadius = new CornerRadius(26) }, Stretch = Stretch.Uniform };
@@ -109,11 +110,22 @@ internal sealed class PanelWindow : Window
         root.ActualThemeChanged += (_, _) => backdrop.ApplyTheme(root.ActualTheme);
         root.PreviewKeyDown += HandleKey;
         Activated += (_, e) => { if (e.WindowActivationState == WindowActivationState.Deactivated) DispatcherQueue.TryEnqueue(CheckForeground); };
+        refreshLanguage = () =>
+        {
+            root.Language = app.Config.Language;
+            footerHint.Text = L.T("⌨  点击空键绑定 · 右键编辑 · 按键或点击启动");
+            closeHint.Text = L.T("Esc  关闭");
+            ToolTipService.SetToolTip(settings, L.T("设置"));
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(settings, L.T("设置"));
+            ToolTipService.SetToolTip(previous, L.T("上一页（←）"));
+            ToolTipService.SetToolTip(next, L.T("下一页（→）"));
+        };
         Refresh();
     }
 
     internal void Refresh()
     {
+        refreshLanguage();
         ((FrameworkElement)Content).RequestedTheme = Ui.Theme(app.Config.Theme);
         backdrop.ApplyTheme(root.ActualTheme);
         page = Math.Min(page, app.Config.PageCount); // One extra page is available for new bindings.
@@ -136,17 +148,17 @@ internal sealed class PanelWindow : Window
                 var button = new PointerButton { Content = cap, Width = 70, Height = 70, Padding = new Thickness(0), CornerRadius = new CornerRadius(16), HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
                 Ui.GlassButton(button, item != null);
                 button.Shadow = new ThemeShadow(); button.Translation = new System.Numerics.Vector3(0, 0, 8);
-                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"{key} · {item?.Name ?? "未绑定"}");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"{key} · {item?.Name ?? L.T("未绑定")}");
                 button.Click += async (_, _) => { if (item == null) await Edit(slot); else await Launch(item); };
-                var menu = new MenuFlyout(); var edit = new MenuFlyoutItem { Text = item == null ? "绑定动作…" : "编辑绑定…" };
+                var menu = new MenuFlyout(); var edit = new MenuFlyoutItem { Text = item == null ? L.T("绑定动作…") : L.T("编辑绑定…") };
                 edit.Click += async (_, _) => await Edit(slot); menu.Items.Add(edit); button.ContextFlyout = menu;
                 var keyCell = new StackPanel { Spacing = 5, Width = 70 };
                 var hitArea = new Grid(); hitArea.Children.Add(button);
                 if (item != null)
                 {
                     var remove = Ui.UnbindButton();
-                    ToolTipService.SetToolTip(remove, "移除绑定");
-                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(remove, $"解除 {key} 的绑定");
+                    ToolTipService.SetToolTip(remove, L.T("移除绑定"));
+                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(remove, L.F("解除 {0} 的绑定", key));
                     remove.Click += async (_, _) => { try { app.Save(app.Config.Bind(slot, null)); } catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); } };
                     hitArea.Children.Add(remove);
                     hitArea.PointerEntered += (_, _) => remove.Visibility = Visibility.Visible;
@@ -158,7 +170,7 @@ internal sealed class PanelWindow : Window
             }
             rows.Children.Add(row);
         }
-        pageLabel.Text = page < app.Config.PageCount ? $"{page + 1} / {app.Config.PageCount}" : $"{page + 1} · 新页";
+        pageLabel.Text = page < app.Config.PageCount ? $"{page + 1} / {app.Config.PageCount}" : L.F("{0} · 新页", page + 1);
         previous.IsEnabled = page > 0; next.IsEnabled = page < Math.Min(99, app.Config.PageCount);
         previous.Visibility = next.Visibility = pageLabel.Visibility = app.Config.PageCount > 1 || page > 0 ? Visibility.Visible : Visibility.Collapsed;
     }

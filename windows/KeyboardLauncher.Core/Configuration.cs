@@ -21,6 +21,7 @@ public sealed record LauncherConfig
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? DoubleTapKey { get; set; } = "control";
     public bool SuppressSystemShortcut { get; set; }
+    public string Language { get; set; } = "en";
     public string Theme { get; set; } = "system";
     public List<Launcher> Launchers { get; set; } = [];
     public int PageCount => Math.Max(1, (Launchers.Select((x, i) => x.KeyIndex ?? i).DefaultIfEmpty(0).Max() / KeyboardLayout.Count) + 1);
@@ -38,25 +39,26 @@ public sealed record LauncherConfig
     public void Validate()
     {
         if (!string.IsNullOrWhiteSpace(Shortcut)) _ = Hotkey.Parse(Shortcut);
-        if (DoubleTapKey is not (null or "" or "control" or "alt" or "shift" or "leftControl" or "rightControl" or "leftAlt" or "rightAlt" or "leftShift" or "rightShift")) throw new FormatException("请选择有效的左侧或右侧双击按键。");
-        if (Theme is not ("system" or "light" or "dark")) throw new FormatException("未知主题。");
-        if (Launchers is null || Launchers.Count > 3800) throw new FormatException("绑定数量超出限制。");
+        if (DoubleTapKey is not (null or "" or "control" or "alt" or "shift" or "leftControl" or "rightControl" or "leftAlt" or "rightAlt" or "leftShift" or "rightShift")) throw new FormatException(L.T("请选择有效的左侧或右侧双击按键。"));
+        if (Language is not ("en" or "zh-CN")) throw new FormatException(L.T("未知语言。"));
+        if (Theme is not ("system" or "light" or "dark")) throw new FormatException(L.T("未知主题。"));
+        if (Launchers is null || Launchers.Count > 3800) throw new FormatException(L.T("绑定数量超出限制。"));
         var slots = new HashSet<int>();
         for (var i = 0; i < Launchers.Count; i++)
         {
-            var item = Launchers[i] ?? throw new FormatException("绑定不能为 null。");
+            var item = Launchers[i] ?? throw new FormatException(L.T("绑定不能为 null。"));
             var slot = item.KeyIndex ?? i;
-            if (slot is < 0 or >= 3800 || !slots.Add(slot)) throw new FormatException("键位重复或超出范围。");
-            if (string.IsNullOrWhiteSpace(item.Name)) throw new FormatException("请输入绑定名称。");
+            if (slot is < 0 or >= 3800 || !slots.Add(slot)) throw new FormatException(L.T("键位重复或超出范围。"));
+            if (string.IsNullOrWhiteSpace(item.Name)) throw new FormatException(L.T("请输入绑定名称。"));
             if (!string.IsNullOrWhiteSpace(item.KeyboardShortcut)) _ = Hotkey.Parse(item.KeyboardShortcut, requireModifier: false);
             else
             {
-                if (string.IsNullOrWhiteSpace(item.Exec)) throw new FormatException("请输入启动目标或命令。");
+                if (string.IsNullOrWhiteSpace(item.Exec)) throw new FormatException(L.T("请输入启动目标或命令。"));
                 if (item.Exec.StartsWith("open ", StringComparison.Ordinal) || item.Exec.Contains(".app/", StringComparison.Ordinal) || item.Exec.EndsWith(".app", StringComparison.Ordinal))
-                    throw new FormatException("macOS 启动命令不能在 Windows 运行，请重新选择 Windows 应用。");
-                if (item.ActionType is not ("application" or "url" or "command")) throw new FormatException("未知动作类型。");
+                    throw new FormatException(L.T("macOS 启动命令不能在 Windows 运行，请重新选择 Windows 应用。"));
+                if (item.ActionType is not ("application" or "url" or "command")) throw new FormatException(L.T("未知动作类型。"));
                 if (item.ActionType == "url" && (!Uri.TryCreate(item.Exec, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http")))
-                    throw new FormatException("网址必须以 http:// 或 https:// 开头。");
+                    throw new FormatException(L.T("网址必须以 http:// 或 https:// 开头。"));
             }
         }
     }
@@ -65,13 +67,13 @@ public sealed record LauncherConfig
     {
         Launchers =
         [
-            new() { KeyIndex = 12, Name = "资源管理器", Exec = "explorer.exe", Icon = "📁" },
-            new() { KeyIndex = 13, Name = "浏览器", Exec = "https://www.bing.com", ActionType = "url", Icon = "🌐" },
-            new() { KeyIndex = 14, Name = "终端", Exec = "powershell.exe", Icon = "⌨" },
-            new() { KeyIndex = 15, Name = "记事本", Exec = "notepad.exe", Icon = "📝" },
-            new() { KeyIndex = 22, Name = "计算器", Exec = "calc.exe", Icon = "▦" },
-            new() { KeyIndex = 23, Name = "设置", Exec = "ms-settings:", Icon = "⚙" },
-            new() { KeyIndex = 24, Name = "复制", KeyboardShortcut = "ctrl+c", Icon = "⧉" }
+            new() { KeyIndex = 12, Name = L.T("资源管理器"), Exec = "explorer.exe", Icon = "📁" },
+            new() { KeyIndex = 13, Name = L.T("浏览器"), Exec = "https://www.bing.com", ActionType = "url", Icon = "🌐" },
+            new() { KeyIndex = 14, Name = L.T("终端"), Exec = "powershell.exe", Icon = "⌨" },
+            new() { KeyIndex = 15, Name = L.T("记事本"), Exec = "notepad.exe", Icon = "📝" },
+            new() { KeyIndex = 22, Name = L.T("计算器"), Exec = "calc.exe", Icon = "▦" },
+            new() { KeyIndex = 23, Name = L.T("设置"), Exec = "ms-settings:", Icon = "⚙" },
+            new() { KeyIndex = 24, Name = L.T("复制"), KeyboardShortcut = "ctrl+c", Icon = "⧉" }
         ]
     };
 }
@@ -96,7 +98,7 @@ public sealed class ConfigStore(string? path = null, string? legacyPath = null)
             File.Copy(legacyFilePath, FilePath, overwrite: false);
         }
         if (!File.Exists(FilePath)) { var initial = LauncherConfig.Default(); Save(initial); return initial; }
-        var config = JsonSerializer.Deserialize<LauncherConfig>(File.ReadAllText(FilePath), JsonOptions) ?? throw new FormatException("配置为空。");
+        var config = JsonSerializer.Deserialize<LauncherConfig>(File.ReadAllText(FilePath), JsonOptions) ?? throw new FormatException(L.T("配置为空。"));
         config.Validate();
         return config;
     }

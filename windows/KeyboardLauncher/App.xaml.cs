@@ -37,13 +37,14 @@ public partial class App : Application
         if (!created)
         {
             try { using var signal = EventWaitHandle.OpenExisting("Local\\KeyboardLauncher.Activate." + Environment.UserName); signal.Set(); }
-            catch (WaitHandleCannotBeOpenedException) { Native.MessageBoxW(0, "Keyboard Launcher 正在启动，请稍后重试。", "Keyboard Launcher", 0x40); }
+            catch (WaitHandleCannotBeOpenedException) { Native.MessageBoxW(0, L.T("Keyboard Launcher 正在启动，请稍后重试。"), "Keyboard Launcher", 0x40); }
             instance.Dispose(); instance = null; Exit(); return;
         }
         try { Config = Store.Load(); }
-        catch (Exception ex) { ConfigLoadFailed = true; StartupError = "配置读取失败，原文件已保留。本次使用默认配置；请先修复配置并重启。\n" + ex.Message; }
+        catch (Exception ex) { ConfigLoadFailed = true; StartupError = L.T("配置读取失败，原文件已保留。本次使用默认配置；请先修复配置并重启。\n") + ex.Message; }
         try
         {
+            L.Language = Config.Language;
             panel = new PanelWindow(this);
             activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\KeyboardLauncher.Activate." + Environment.UserName);
             activationWait = ThreadPool.RegisterWaitForSingleObject(activationEvent, (_, _) => panel.DispatcherQueue.TryEnqueue(() => panel.Show()), null, Timeout.Infinite, false);
@@ -61,18 +62,20 @@ public partial class App : Application
             if (Environment.GetCommandLineArgs().Contains("--control-smoke-test")) RunControlSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--panel-smoke-test")) RunPanelSmokeTest();
         }
-        catch (Exception ex) { Native.MessageBoxW(0, ex.ToString(), "Keyboard Launcher 启动失败", 0x10); Quit(); }
+        catch (Exception ex) { Native.MessageBoxW(0, ex.ToString(), L.T("Keyboard Launcher 启动失败"), 0x10); Quit(); }
     }
 
     internal void Save(LauncherConfig config)
     {
-        if (ConfigLoadFailed) throw new InvalidOperationException("原配置未能加载。请打开配置目录，修复或备份并移走 config.json 后重启，避免覆盖原数据。");
+        if (ConfigLoadFailed) throw new InvalidOperationException(L.T("原配置未能加载。请打开配置目录，修复或备份并移走 config.json 后重启，避免覆盖原数据。"));
         config.Validate();
         desktop!.Configure(config);
         try { Store.Save(config); }
         catch { desktop.Configure(Config); throw; }
-        Config = config; StartupError = null;
+        var languageChanged = Config.Language != config.Language;
+        Config = config; StartupError = null; L.Language = config.Language;
         panel!.Refresh(); settings?.ApplyTheme();
+        if (languageChanged) { desktop.RefreshLanguage(); settings?.ApplyLanguage(); }
     }
 
     internal bool HasPressedKeys => desktop?.IsAnyKeyDown == true;

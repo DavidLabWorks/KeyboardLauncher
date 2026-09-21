@@ -29,14 +29,14 @@ internal static class BindingEditor
         private readonly Grid root = new();
         private readonly TextBox name = new() { FontSize = 19, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Padding = new Thickness(12, 7, 12, 7) };
         private readonly TextBox application = new(), url = new(), command = new(), arguments = new(), shortcut = new();
-        private readonly TextBox icon = new() { PlaceholderText = "输入符号、emoji 或图片路径", Width = 280 };
+        private readonly TextBox icon = new() { PlaceholderText = L.T("输入符号、emoji 或图片路径"), Width = 280 };
         private readonly Grid preview = new() { Width = 60, Height = 60 };
         private readonly Grid appPreview = new() { Width = 36, Height = 36 };
-        private readonly TextBlock appName = new() { Text = "选择应用…", FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+        private readonly TextBlock appName = new() { Text = L.T("选择应用…"), FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
         private readonly StackPanel fields = new() { Spacing = 18 };
         private readonly TextBlock hint = new() { FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap };
         private readonly TextBlock error = new() { Foreground = new SolidColorBrush(Colors.IndianRed), FontSize = 12, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
-        private readonly Button save = new PointerButton() { Content = "保存", MinWidth = 96, Height = 36, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium, Padding = new Thickness(18, 0, 18, 0), CornerRadius = new CornerRadius(7) };
+        private readonly Button save = new PointerButton() { Content = L.T("保存"), MinWidth = 96, Height = 36, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium, Padding = new Thickness(18, 0, 18, 0), CornerRadius = new CornerRadius(7) };
         private readonly List<Button> segments = [];
         private readonly List<Action> paints = [];
         private Button chooseApp = null!;
@@ -45,17 +45,17 @@ internal static class BindingEditor
 
         internal EditorWindow(App app, nint owner, int slot)
         {
-            this.app = app; this.slot = slot;
+            this.app = app; this.slot = slot; root.Language = app.Config.Language;
             var existing = app.Config.At(slot);
             selected = existing?.KeyboardShortcut != null ? 3 : existing?.ActionType switch { "url" => 1, "command" => 2, _ => 0 };
-            name.Text = existing?.Name ?? "新建项目";
+            name.Text = existing?.Name ?? L.T("新建项目");
             application.Text = selected == 0 ? existing?.Exec ?? "" : "";
             url.Text = selected == 1 ? existing?.Exec ?? "" : "";
             command.Text = selected == 2 ? existing?.Exec ?? "" : "";
             arguments.Text = existing?.Arguments ?? "";
             shortcut.Text = existing?.KeyboardShortcut ?? "";
             icon.Text = existing?.Icon ?? "";
-            Title = $"绑定按键 {KeyboardLayout.Keys[slot % KeyboardLayout.Count]}";
+            Title = L.F("绑定按键 {0}", KeyboardLayout.Keys[slot % KeyboardLayout.Count]);
             handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
             Native.SetWindowLongPtr(handle, -8, owner);
             AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
@@ -84,22 +84,22 @@ internal static class BindingEditor
             iconHost.Children.Add(pencil); identity.Children.Add(iconHost);
             BuildIconPicker(iconButton);
             var identityText = new StackPanel { Spacing = 8 };
-            identityText.Children.Add(Label("名称"));
+            identityText.Children.Add(Label(L.T("名称")));
             name.Resources["TextControlCornerRadius"] = new CornerRadius(8);
             paints.Add(() => { name.Background = Brush(Dark ? 56 : 245); name.BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(51, (byte)(Dark ? 255 : 0), (byte)(Dark ? 255 : 0), (byte)(Dark ? 255 : 0))); });
             identityText.Children.Add(name);
-            identityText.Children.Add(new TextBlock { Text = "自定义键盘面板上显示的名称和图标。", FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap });
+            identityText.Children.Add(new TextBlock { Text = L.T("自定义键盘面板上显示的名称和图标。"), FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap });
             Grid.SetColumn(identityText, 1); identity.Children.Add(identityText);
             form.Children.Add(Card(identity, 18));
 
             var actionSection = new StackPanel { Spacing = 10 };
-            var actionLabel = Label("动作"); actionLabel.Margin = new Thickness(6, 0, 0, 0); actionSection.Children.Add(actionLabel);
+            var actionLabel = Label(L.T("动作")); actionLabel.Margin = new Thickness(6, 0, 0, 0); actionSection.Children.Add(actionLabel);
             var action = new StackPanel { Spacing = 18 };
             var segmentRow = new Grid();
             for (int column = 0; column < 4; column++) segmentRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
             var segmentBackground = new Border { Child = segmentRow, Padding = new Thickness(3), CornerRadius = new CornerRadius(9), HorizontalAlignment = HorizontalAlignment.Stretch };
             paints.Add(() => segmentBackground.Background = Brush(Dark ? 56 : 235));
-            var titles = new[] { "打开应用", "打开网址", "Shell 命令", "执行快捷键" };
+            var titles = new[] { L.T("打开应用"), L.T("打开网址"), L.T("Shell 命令"), L.T("执行快捷键") };
             for (int i = 0; i < titles.Length; i++)
             {
                 int index = i;
@@ -120,7 +120,7 @@ internal static class BindingEditor
             var footer = new Grid { Padding = new Thickness(24, 20, 24, 20), BorderThickness = new Thickness(0, 1, 0, 0) };
             paints.Add(() => footer.BorderBrush = Brush(Dark ? 60 : 222));
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            var cancel = new PointerButton { Content = "取消", MinWidth = 96, Height = 36, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium, Padding = new Thickness(18, 0, 18, 0), CornerRadius = new CornerRadius(7) };
+            var cancel = new PointerButton { Content = L.T("取消"), MinWidth = 96, Height = 36, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium, Padding = new Thickness(18, 0, 18, 0), CornerRadius = new CornerRadius(7) };
             cancel.Click += (_, _) => Close();
             save.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
             save.Click += (_, _) => Save();
@@ -164,7 +164,7 @@ internal static class BindingEditor
             {
                 segments[i].Background = i == selected ? Brush(48, 112, 244) : new SolidColorBrush(Colors.Transparent);
                 segments[i].Foreground = i == selected || Dark ? Brush(255) : Brush(35);
-                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(segments[i], $"{segments[i].Content}{(i == selected ? "，已选择" : "")}");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(segments[i], $"{segments[i].Content}{(i == selected ? L.T("，已选择") : "")}");
             }
         }
         private static StackPanel Field(string title, TextBox box, string placeholder)
@@ -182,12 +182,12 @@ internal static class BindingEditor
             fields.Children.Clear();
             switch (selected)
             {
-                case 0: fields.Children.Add(chooseApp); fields.Children.Add(Field("参数   可选", arguments, "例如 C:\\Projects\\my-app")); break;
-                case 1: fields.Children.Add(Field("网址", url, "https://example.com")); break;
-                case 2: fields.Children.Add(Field("Shell 命令", command, "输入 Windows 命令或脚本路径")); break;
+                case 0: fields.Children.Add(chooseApp); fields.Children.Add(Field(L.T("参数   可选"), arguments, L.T("例如 C:\\Projects\\my-app"))); break;
+                case 1: fields.Children.Add(Field(L.T("网址"), url, "https://example.com")); break;
+                case 2: fields.Children.Add(Field(L.T("Shell 命令"), command, L.T("输入 Windows 命令或脚本路径"))); break;
                 case 3:
-                    fields.Children.Add(Field("快捷键", shortcut, "点击后按下快捷键"));
-                    fields.Children.Add(new TextBlock { Text = "返回之前的应用，然后执行快捷键。支持全局快捷键。", FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap });
+                    fields.Children.Add(Field(L.T("快捷键"), shortcut, L.T("点击后按下快捷键")));
+                    fields.Children.Add(new TextBlock { Text = L.T("返回之前的应用，然后执行快捷键。支持全局快捷键。"), FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap });
                     break;
             }
             PaintSegments(); UpdatePreview(); Validate();
@@ -216,17 +216,17 @@ internal static class BindingEditor
             if (string.IsNullOrWhiteSpace(draft.Exec) && string.IsNullOrWhiteSpace(draft.Icon) && string.IsNullOrWhiteSpace(draft.KeyboardShortcut))
                 preview.Children.Add(new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(14), Background = Brush(38) });
             else preview.Children.Add(Ui.KeyIcon(draft, 76));
-            appName.Text = string.IsNullOrWhiteSpace(application.Text) ? "选择应用…" : Path.GetFileNameWithoutExtension(application.Text);
+            appName.Text = string.IsNullOrWhiteSpace(application.Text) ? L.T("选择应用…") : Path.GetFileNameWithoutExtension(application.Text);
             appPreview.Children.Clear();
             appPreview.Children.Add(string.IsNullOrWhiteSpace(application.Text)
                 ? new FontIcon { Glyph = "\uE739", FontSize = 27, Opacity = .6 }
                 : Ui.KeyIcon(new Launcher { Exec = application.Text }, 48));
-            hint.Text = string.IsNullOrWhiteSpace(icon.Text) ? "根据命令自动识别图标" : "使用自定义图标";
+            hint.Text = string.IsNullOrWhiteSpace(icon.Text) ? L.T("根据命令自动识别图标") : L.T("使用自定义图标");
         }
         private void BuildAppPicker()
         {
             var label = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-            label.Children.Add(new TextBlock { Text = "应用", FontSize = 11, Opacity = .6 }); label.Children.Add(appName);
+            label.Children.Add(new TextBlock { Text = L.T("应用"), FontSize = 11, Opacity = .6 }); label.Children.Add(appName);
             var row = new Grid { ColumnSpacing = 12 };
             row.ColumnDefinitions.Add(new() { Width = new GridLength(36) }); row.ColumnDefinitions.Add(new()); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
             row.Children.Add(appPreview); Grid.SetColumn(label, 1); row.Children.Add(label);
@@ -234,7 +234,7 @@ internal static class BindingEditor
             chooseApp = new PointerButton { Content = row, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Padding = new Thickness(10), BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(10) };
             paints.Add(() => chooseApp.Background = Brush(Dark ? 47 : 249));
-            var search = new TextBox { PlaceholderText = "搜索应用", Width = 420 };
+            var search = new TextBox { PlaceholderText = L.T("搜索应用"), Width = 420 };
             var results = new PointerGridView { Height = 300, Width = 420, IsItemClickEnabled = true, SelectionMode = ListViewSelectionMode.None, Padding = new Thickness(0), BorderThickness = new Thickness(0) };
             results.ItemsPanel = (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
                 <ItemsPanelTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
@@ -258,9 +258,9 @@ internal static class BindingEditor
                     </StackPanel>
                 </DataTemplate>
                 """);
-            var browse = new PointerButton { Content = "浏览应用或文件…" };
+            var browse = new PointerButton { Content = L.T("浏览应用或文件…") };
             var pickerPanel = new StackPanel { Spacing = 12 };
-            pickerPanel.Children.Add(search); pickerPanel.Children.Add(results); pickerPanel.Children.Add(Field("应用、文件或文件夹路径", application, "例如 notepad.exe")); pickerPanel.Children.Add(browse);
+            pickerPanel.Children.Add(search); pickerPanel.Children.Add(results); pickerPanel.Children.Add(Field(L.T("应用、文件或文件夹路径"), application, L.T("例如 notepad.exe"))); pickerPanel.Children.Add(browse);
             var flyout = new Flyout { Content = pickerPanel };
             flyout.FlyoutPresenterStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
                 <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="FlyoutPresenter">
@@ -288,13 +288,13 @@ internal static class BindingEditor
         private void Choose(string path, string title)
         {
             application.Text = path;
-            if (string.IsNullOrWhiteSpace(name.Text) || name.Text == "新建项目") name.Text = title;
+            if (string.IsNullOrWhiteSpace(name.Text) || name.Text == L.T("新建项目")) name.Text = title;
         }
         private void BuildIconPicker(Button button)
         {
             var panel = new StackPanel { Spacing = 12 };
-            panel.Children.Add(Label("更改图标")); panel.Children.Add(icon);
-            var browse = new PointerButton { Content = "选择图片…" }; var reset = new PointerButton { Content = "自动识别图标" };
+            panel.Children.Add(Label(L.T("更改图标"))); panel.Children.Add(icon);
+            var browse = new PointerButton { Content = L.T("选择图片…") }; var reset = new PointerButton { Content = L.T("自动识别图标") };
             panel.Children.Add(browse); panel.Children.Add(reset);
             var flyout = new Flyout { Content = panel }; button.Flyout = flyout;
             reset.Click += (_, _) => { icon.Text = ""; flyout.Hide(); };

@@ -1,3 +1,4 @@
+using KeyboardLauncher.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -15,7 +16,7 @@ internal static class ShortcutRecorder
         }
         field.IsReadOnly = true;
         field.IsSpellCheckEnabled = false;
-        field.PlaceholderText = "点击后按下快捷键";
+        field.PlaceholderText = L.T("点击后按下快捷键");
         void Begin()
         {
             app.BeginShortcutRecording(hwnd, key =>
@@ -25,7 +26,7 @@ internal static class ShortcutRecorder
                     var value = key.ToDisplayString();
                     Core.Hotkey.Parse(value, requireModifier);
                     field.Text = value;
-                    field.PlaceholderText = "点击后按下快捷键";
+                    field.PlaceholderText = L.T("点击后按下快捷键");
                 }
                 catch (FormatException ex) { field.PlaceholderText = ex.Message; }
             });

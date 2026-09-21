@@ -39,6 +39,12 @@ dotnet build windows/KeyboardLauncher/KeyboardLauncher.csproj -p:Platform=ARM64
 
 快捷键输入示例：`ctrl+shift+space`、`alt+f2`、`win+e`。发送动作也支持单键，例如 `f5`。不把 macOS 的 `cmd` 静默映射为 Windows 键。
 
+## 界面语言
+
+Windows 客户端默认使用 English。在 General → Language 可通过分段切换条选择 English 或简体中文，立即生效并自动保存。语言影响面板、设置、绑定编辑器、托盘菜单及应用提示，不改写已有绑定的名称。外观也使用分段切换条，提供 System / Light / Dark。
+
+配置字段 `language` 支持 `en` 和 `zh-CN`；旧配置未包含该字段时默认英文。英文资源集中在 `KeyboardLauncher.Core/Strings.en.json`。
+
 ## 配置
 
 Windows 配置：`%LOCALAPPDATA%\KeyboardLauncher\config.json`。

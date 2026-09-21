@@ -121,7 +121,7 @@ internal static class Ui
     }
     internal static async Task Error(XamlRoot root, string message)
     {
-        await new ContentDialog { XamlRoot = root, Title = "操作未完成", Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap }, CloseButtonText = "确定" }.ShowAsync();
+        await new ContentDialog { XamlRoot = root, Title = L.T("操作未完成"), Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap }, CloseButtonText = L.T("确定") }.ShowAsync();
     }
     internal static TextBox Field(string label, string value = "", string hint = "") => new() { Header = label, Text = value, PlaceholderText = hint, HorizontalAlignment = HorizontalAlignment.Stretch };
 }

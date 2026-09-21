@@ -42,14 +42,14 @@ internal sealed class DesktopIntegration : IDisposable
         windowProc = WindowMessage; keyboardProc = KeyboardMessage; mouseProc = MouseMessage;
         try
         {
-            if (!Native.SetWindowSubclass(hwnd, windowProc, 1, 0)) throw new Win32Exception("无法安装窗口消息处理程序。");
+            if (!Native.SetWindowSubclass(hwnd, windowProc, 1, 0)) throw new Win32Exception(L.T("无法安装窗口消息处理程序。"));
             keyboardHook = Native.SetWindowsHookExW(13, keyboardProc, Native.GetModuleHandleW(null), 0);
-            if (keyboardHook == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), "无法安装键盘钩子。");
+            if (keyboardHook == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), L.T("无法安装键盘钩子。"));
             mouseHook = Native.SetWindowsHookExW(14, mouseProc, Native.GetModuleHandleW(null), 0);
-            if (mouseHook == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), "无法安装鼠标钩子。");
+            if (mouseHook == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), L.T("无法安装鼠标钩子。"));
             tray = new() { Size = (uint)Marshal.SizeOf<Native.NotifyIconData>(), Window = hwnd, Id = 1, Flags = 7, CallbackMessage = 0x8001,
-                Icon = Native.LoadImageW(0, Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"), 1, 32, 32, 0x10), Tip = "Keyboard Launcher · 键盘启动器", Info = "", InfoTitle = "" };
-            if (!Native.Shell_NotifyIconW(0, ref tray)) throw new Win32Exception("无法创建托盘图标。");
+                Icon = Native.LoadImageW(0, Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"), 1, 32, 32, 0x10), Tip = L.T("Keyboard Launcher · 键盘启动器"), Info = "", InfoTitle = "" };
+            if (!Native.Shell_NotifyIconW(0, ref tray)) throw new Win32Exception(L.T("无法创建托盘图标。"));
         }
         catch { Dispose(); throw; }
     }
@@ -62,7 +62,7 @@ internal sealed class DesktopIntegration : IDisposable
         {
             var newId = hotkeyId == 1 ? 2 : 1;
             if (next is Hotkey hotkey && !config.SuppressSystemShortcut && !Native.RegisterHotKey(hwnd, newId, hotkey.Modifiers | 0x4000, hotkey.Key))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "快捷键已被其他程序占用，请选择其他组合，或启用拦截模式。");
+                throw new Win32Exception(Marshal.GetLastWin32Error(), L.T("快捷键已被其他程序占用，请选择其他组合，或启用拦截模式。"));
             Native.UnregisterHotKey(hwnd, hotkeyId);
             hotkeyId = newId; shortcut = next; suppress = config.SuppressSystemShortcut;
         }
@@ -82,13 +82,19 @@ internal sealed class DesktopIntegration : IDisposable
         return Native.DefSubclassProc(window, message, wParam, lParam);
     }
 
+    internal void RefreshLanguage()
+    {
+        tray.Tip = L.T("Keyboard Launcher · 键盘启动器");
+        Native.Shell_NotifyIconW(1, ref tray);
+    }
+
     private void ShowTrayMenu()
     {
         var menu = Native.CreatePopupMenu();
         try
         {
-            Native.AppendMenuW(menu, 0, 1, "打开启动器"); Native.AppendMenuW(menu, 0, 2, "设置…");
-            Native.AppendMenuW(menu, 0x800, 0, null); Native.AppendMenuW(menu, 0, 3, "退出");
+            Native.AppendMenuW(menu, 0, 1, L.T("打开启动器")); Native.AppendMenuW(menu, 0, 2, L.T("设置…"));
+            Native.AppendMenuW(menu, 0x800, 0, null); Native.AppendMenuW(menu, 0, 3, L.T("退出"));
             Native.GetCursorPos(out var point); Native.SetForegroundWindow(hwnd);
             var result = Native.TrackPopupMenu(menu, 0x100 | 2, point.X, point.Y, 0, hwnd, 0);
             Native.PostMessageW(hwnd, 0, 0, 0);

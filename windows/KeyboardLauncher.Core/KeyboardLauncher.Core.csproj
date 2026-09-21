@@ -4,4 +4,5 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <ItemGroup><EmbeddedResource Include="Strings.en.json" WithCulture="false" LogicalName="KeyboardLauncher.Core.Strings.en.json" /></ItemGroup>
 </Project>

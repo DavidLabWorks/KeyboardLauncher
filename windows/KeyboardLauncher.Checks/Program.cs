@@ -5,6 +5,45 @@ void Check(string name, Action check) { check(); Console.WriteLine($"PASS {name}
 void Assert(bool condition) { if (!condition) throw new Exception("Assertion failed"); }
 void Throws(Action action) { try { action(); } catch (FormatException) { return; } throw new Exception("Expected FormatException"); }
 
+Check("Language defaults to English and round-trips without renaming user bindings", () =>
+{
+    var previousLanguage = L.Language;
+    var path = Path.Combine(Path.GetTempPath(), "KeyboardLauncher-language-" + Guid.NewGuid() + ".json");
+    try
+    {
+        Assert(new LauncherConfig().Language == "en");
+        Assert(System.Text.Json.JsonSerializer.Deserialize<LauncherConfig>("{}", ConfigStore.JsonOptions)!.Language == "en");
+        var store = new ConfigStore(path);
+        var config = LauncherConfig.Default().Bind(0, new Launcher { Name = "我的 Terminal", Exec = "cmd.exe" });
+        foreach (var language in new[] { "en", "zh-CN", "en" })
+        {
+            L.Language = language;
+            store.Save(config with { Language = language });
+            Assert(store.Load().Language == language);
+            Assert(store.Load().At(0)!.Name == "我的 Terminal");
+            Assert(L.T("保存") == (language == "en" ? "Save" : "保存"));
+            Assert(L.F("绑定按键 {0}", "D") == (language == "en" ? "Bind Key D" : "绑定按键 D"));
+            try { Hotkey.Parse("ctrl"); }
+            catch (FormatException ex) { Assert(ex.Message == L.T("唤起快捷键需要修饰键和一个普通按键。")); }
+        }
+        Throws(() => (config with { Language = "system" }).Validate());
+        using var resource = typeof(L).Assembly.GetManifestResourceStream("KeyboardLauncher.Core.Strings.en.json")!;
+        var strings = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(resource)!;
+        foreach (var pair in strings)
+        {
+            Assert(!string.IsNullOrWhiteSpace(pair.Value));
+            L.Language = "en"; Assert(L.T(pair.Key) == pair.Value);
+            L.Language = "zh-CN"; Assert(L.T(pair.Key) == pair.Key);
+            Assert(System.Text.RegularExpressions.Regex.Matches(pair.Key, @"\{\d+\}").Select(x => x.Value)
+                .SequenceEqual(System.Text.RegularExpressions.Regex.Matches(pair.Value, @"\{\d+\}").Select(x => x.Value)));
+        }
+    }
+    finally
+    {
+        L.Language = previousLanguage;
+        File.Delete(path); File.Delete(path + ".bak");
+    }
+});
 Check("ANSI positions and pages match macOS", () =>
 {
     Assert(KeyboardLayout.Keys.Length == 38);
