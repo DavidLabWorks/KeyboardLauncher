@@ -4,6 +4,19 @@
 
 以键盘面板为入口的启动工具。唤起面板后，按下已绑定的键位或点击图标，即可打开应用、访问网址、执行命令或发送快捷键。
 
+## 界面预览
+
+macOS 启动器的浅色与深色外观。以下预览由当前原生界面组件配合示例绑定导出，使用中性背景；实际玻璃效果会随桌面背景变化。图片不包含个人配置、账号或桌面内容。
+
+![macOS 浅色启动器，展示应用与快捷键绑定](docs/screenshots/macos-launcher-light.png)
+
+<details>
+<summary>查看深色外观</summary>
+
+![macOS 深色启动器](docs/screenshots/macos-launcher-dark.png)
+
+</details>
+
 仓库包含两个独立的原生实现：
 
 | 平台 | 技术栈 | 文档 |

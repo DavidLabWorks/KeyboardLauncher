@@ -4,6 +4,19 @@
 
 A keyboard-shaped launcher for apps, URLs, shell commands, and keyboard shortcuts. Bring up the panel, then press a bound key or click its icon to run an action.
 
+## Interface preview
+
+The macOS launcher in light and dark appearance. These previews are rendered from the current native UI components with sample bindings on a neutral background; desktop-dependent glass effects may differ in use.
+
+![Keyboard Launcher for macOS in light mode, showing app and shortcut bindings](docs/screenshots/macos-launcher-light.png)
+
+<details>
+<summary>View dark appearance</summary>
+
+![Keyboard Launcher for macOS in dark mode](docs/screenshots/macos-launcher-dark.png)
+
+</details>
+
 The repository contains separate native implementations:
 
 | Platform | Implementation | Documentation |
