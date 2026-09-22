@@ -6,7 +6,7 @@ namespace KeyboardLauncher;
 
 internal static class ActionRunner
 {
-    public static async Task Run(Launcher launcher, nint previousWindow, Func<bool>? hasPressedKeys = null)
+    public static async Task Run(Launcher launcher, nint previousWindow, Func<bool>? hasPressedKeys = null, Action? releasePanel = null)
     {
         if (!string.IsNullOrWhiteSpace(launcher.KeyboardShortcut))
         {
@@ -39,13 +39,24 @@ internal static class ActionRunner
             }
             return;
         }
-        if (launcher.ActionType == "command")
+        if (launcher.ActionType == "script")
+        {
+            Process.Start(ScriptAction.CreateStartInfo(launcher.Exec))?.Dispose();
+        }
+        else if (launcher.ActionType == "command")
         {
             var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd.exe") { UseShellExecute = false };
             start.Arguments = "/d /s /c \"" + launcher.Exec + "\"";
             Process.Start(start)?.Dispose();
         }
-        else Process.Start(new ProcessStartInfo(Environment.ExpandEnvironmentVariables(launcher.Exec)) { Arguments = launcher.Arguments, UseShellExecute = true })?.Dispose();
+        else await ApplicationActivation.Open(launcher, releasePanel);
+    }
+
+    internal static bool IsExplorerWindow(nint window)
+    {
+        var name = new System.Text.StringBuilder(256);
+        Native.GetClassNameW(window, name, name.Capacity);
+        return name.ToString() is "CabinetWClass" or "ExploreWClass";
     }
 
     private static Native.Input MakeInput(ushort key, bool up) => new()

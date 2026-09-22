@@ -9,6 +9,18 @@ struct LaunchpickConfig: Codable {
     var columns: Int?
     var launchers: [ConfigLauncher]
 
+    private static let accessLock = NSRecursiveLock()
+
+    // Keep read/modify/write indivisible across background moves and settings edits.
+    @discardableResult
+    static func update(_ change: (inout LaunchpickConfig) -> Bool) -> Bool {
+        accessLock.lock()
+        defer { accessLock.unlock() }
+        var config = load()
+        guard change(&config) else { return false }
+        return save(config)
+    }
+
     static var configDir: String {
         "\(NSHomeDirectory())/.config/launchpick"
     }
@@ -18,6 +30,8 @@ struct LaunchpickConfig: Codable {
     }
 
     static func load() -> LaunchpickConfig {
+        accessLock.lock()
+        defer { accessLock.unlock() }
         let path = configPath
 
         guard FileManager.default.fileExists(atPath: path) else {
@@ -37,6 +51,8 @@ struct LaunchpickConfig: Codable {
 
     @discardableResult
     static func save(_ config: LaunchpickConfig) -> Bool {
+        accessLock.lock()
+        defer { accessLock.unlock() }
         do {
             try FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true)
             let encoder = JSONEncoder()
@@ -59,6 +75,23 @@ struct LaunchpickConfig: Codable {
             launcher.keyIndex = slot
             launchers.append(launcher)
         }
+    }
+
+    // Freeze legacy positions before moving; occupied destinations swap atomically.
+    @discardableResult
+    mutating func moveBinding(from source: Int, to destination: Int) -> Bool {
+        let count = max(1, ((launchers.enumerated().map { $0.element.keyIndex ?? $0.offset }.max() ?? 0)
+            / KeyboardLayout.keys.count) + 1) * KeyboardLayout.keys.count
+        guard source >= 0, destination >= 0, destination < count, source != destination,
+              let origin = launchers.indices.first(where: { (launchers[$0].keyIndex ?? $0) == source }) else { return false }
+        for index in launchers.indices where launchers[index].keyIndex == nil {
+            launchers[index].keyIndex = index
+        }
+        if let target = launchers.firstIndex(where: { $0.keyIndex == destination }) {
+            launchers[target].keyIndex = source
+        }
+        launchers[origin].keyIndex = destination
+        return true
     }
 
     static func createDefault() -> LaunchpickConfig {

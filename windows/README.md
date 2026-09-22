@@ -39,6 +39,10 @@ dotnet build windows/KeyboardLauncher/KeyboardLauncher.csproj -p:Platform=ARM64
 
 快捷键输入示例：`ctrl+shift+space`、`alt+f2`、`win+e`。发送动作也支持单键，例如 `f5`。不把 macOS 的 `cmd` 静默映射为 Windows 键。
 
+## 脚本文件
+
+绑定编辑器的 Shell 命令页通过文件选择器选择 `.cmd`、`.bat` 或 `.ps1`，显示文件名和路径，无需手填路径。新绑定保存为 `actionType: "script"`，以脚本所在目录运行；PowerShell 使用 `-NoProfile -File`，遵守系统执行策略。旧 `command` 绑定保持兼容，重新选择文件后转换为脚本绑定。
+
 ## 界面语言
 
 Windows 客户端默认使用 English。在 General → Language 可通过分段切换条选择 English 或简体中文，立即生效并自动保存。语言影响面板、设置、绑定编辑器、托盘菜单及应用提示，不改写已有绑定的名称。外观也使用分段切换条，提供 System / Light / Dark。
@@ -85,7 +89,7 @@ Windows 配置：`%LOCALAPPDATA%\KeyboardLauncher\config.json`。
 
 发送快捷键前等待实体按键释放，激活原窗口，并再次确认焦点。Windows UIPI 不允许普通权限应用向管理员权限应用发送输入，失败会提示。不会自动提升客户端权限。
 
-当前使用非 MSIX、自包含目录部署。尚未包含安装器、代码签名、自动更新或商店应用完整目录扫描。快捷键支持在设置和动作编辑中点击录入，录入期间拦截按键以避免触发其他应用；设置失焦后自动保存。应用文件图标使用 Windows 缩略图接口读取。Windows 材质在系统不支持或关闭透明效果时采用系统回退。
+当前使用非 MSIX、自包含目录部署。提供 NSIS 安装器；尚未包含代码签名、自动更新或商店应用完整目录扫描。快捷键支持在设置和动作编辑中点击录入，录入期间拦截按键以避免触发其他应用；设置失焦后自动保存。应用文件图标使用 Windows 缩略图接口读取。Windows 材质在系统不支持或关闭透明效果时采用系统回退。
 
 ## 视觉与主题回归
 
@@ -95,10 +99,16 @@ Windows 配置：`%LOCALAPPDATA%\KeyboardLauncher\config.json`。
 
 运行 `KeyboardLauncher.exe --theme-smoke-test` 可验证六次主题切换及面板显示/隐藏，报告写入程序目录的 `theme-smoke-test.txt`，完成后退出，不保存测试主题。请先退出正在运行的客户端。`--settings` 直接打开设置。
 
-已在 Windows ARM64 验证主题切换、面板与设置窗口，并通过 11 项核心回归检查；ARM64 / x64 均编译通过。x64 尚未在独立 x64 设备运行验收。
+已在 Windows ARM64 验证主题切换、面板与设置窗口，并通过 14 项核心回归检查；ARM64 / x64 均编译通过。x64 尚未在独立 x64 设备运行验收。
 
 `--control-smoke-test` 使用带测试标记的输入验证左右 Control 双击经过全局键盘钩子后各唤起一次，报告写入程序目录的 `control-smoke-test.txt`；不会保存测试配置。需要先退出已运行实例。
 
 `--panel-smoke-test` 验证窗口圆角区域、Esc 按键经过实际钩子关闭面板，以及前台窗口改变后的自动隐藏。失焦检测在面板显示时运行，编辑绑定期间暂停；隐藏后停止检测和阴影绘制。
 
 官方参考：[WinUI 与 Windows App SDK](https://learn.microsoft.com/windows/apps/get-started/windows-developer-faq)、[Mica / Acrylic](https://learn.microsoft.com/windows/apps/develop/ui/system-backdrops)。
+
+## 版本与安装包
+
+根目录 `app.json` 的 `name` 和 `version` 是两端共用的显示名称和版本号。Windows 构建会读取它，设置页和安装器也使用相同信息。可执行文件名、配置目录和 macOS Bundle ID 保持稳定，不随显示名称变化。
+
+安装 NSIS 后运行 `./package.ps1 -Architecture ARM64` 或 `./package.ps1 -Architecture x64`，可通过 `-OutputDirectory` 指定输出目录。

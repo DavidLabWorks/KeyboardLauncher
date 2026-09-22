@@ -11,6 +11,7 @@ extension NSColor {
 class LaunchpickState: ObservableObject {
     @Published var launchers: [LaunchpickItem] = []
     @Published var keyboardPage = 0
+    @Published var draggingSlot: Int?
     @Published var editingSlot: Int? {
         didSet {
             if oldValue != editingSlot { onEditingChanged?() }
@@ -21,6 +22,32 @@ class LaunchpickState: ObservableObject {
     var onLaunch: ((LaunchpickItem) -> Void)?
     var onDismiss: (() -> Void)?
     var onSettings: (() -> Void)?
+    var onMove: ((Int, Int, @escaping (Bool) -> Void) -> Void)?
+    @Published private(set) var isMoving = false
+    @Published var moveFailed = false
+
+    @discardableResult
+    func moveBinding(from source: Int, to destination: Int) -> Bool {
+        guard !isMoving, source != destination, destination >= 0,
+              destination < pageCount * KeyboardLayout.keys.count,
+              launchers.contains(where: { $0.slot == source }), let onMove else { return false }
+        let previous = launchers
+        isMoving = true
+        // Reuse images and identities: no disk reads or icon resolution on drop.
+        launchers = launchers.map { item in
+            var moved = item
+            if item.slot == source { moved.slot = destination }
+            else if item.slot == destination { moved.slot = source }
+            return moved
+        }
+        onMove(source, destination) { [weak self] success in
+            guard let self else { return }
+            if !success { self.launchers = previous; self.moveFailed = true }
+            self.keyboardPage = min(self.keyboardPage, self.pageCount - 1)
+            self.isMoving = false
+        }
+        return true
+    }
     var onBind: ((ConfigLauncher?, Int) -> Bool)?
 
     var pageCount: Int { max(1, ((launchers.map(\.slot).max() ?? 0) / KeyboardLayout.keys.count) + 1) }
@@ -28,7 +55,7 @@ class LaunchpickState: ObservableObject {
 
 struct LaunchpickItem: Identifiable {
     let id = UUID()
-    let slot: Int
+    var slot: Int
     let name: String
     let exec: String
     let icon: NSImage
@@ -39,6 +66,8 @@ struct ContentView: View {
     @Environment(\.locale) private var locale
     @ObservedObject var state: LaunchpickState
     @State private var unbindFailed = false
+    @State private var dragLocation = CGPoint.zero
+    @State private var keyFrames: [Int: CGRect] = [:]
     @State private var settingsHovered = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -49,7 +78,7 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     Image(nsImage: IconResolver.appIcon)
                         .resizable().scaledToFit().frame(width: 34, height: 34)
-                    Text("Keyboard Launcher").font(.system(size: 15, weight: .semibold))
+                    Text(verbatim: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Keyboard Launcher").font(.system(size: 15, weight: .semibold))
                     Spacer()
                 }
                 .frame(maxHeight: .infinity)
@@ -114,10 +143,49 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
             .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
+        .alert("Could not move binding. Check that the configuration folder is writable.", isPresented: $state.moveFailed) {
+            Button("OK", role: .cancel) {}
+        }
         .alert("Could not remove binding. Check that the configuration folder is writable.", isPresented: $unbindFailed) {
             Button("OK", role: .cancel) {}
         }
     }
+
+    private func keyCap(key: String, index: Int, width: CGFloat) -> some View {
+        let item = state.launchers.first { $0.slot == index }
+        return KeyCapView(key: key, item: item, width: width,
+                          dropTargeted: state.draggingSlot != nil && dropSlot == index && state.draggingSlot != index,
+                          dragging: state.draggingSlot == index,
+                          onDrag: { point in
+                              guard !state.isMoving else { return }
+                              state.draggingSlot = index
+                              dragLocation = point
+                          }, onDrop: { point in
+                              guard state.draggingSlot == index else { return }
+                              let target = Self.dropSlot(at: point, frames: keyFrames)
+                              state.draggingSlot = nil
+                              if let target { _ = state.moveBinding(from: index, to: target) }
+                          }, action: {
+            if let item { state.onLaunch?(item) }
+            else if !state.isMoving { state.editingSlot = index }
+        }, onRemove: {
+            guard !state.isMoving else { return }
+            unbindFailed = state.onBind?(nil, index) != true
+        })
+        .background(GeometryReader { geometry in
+            Color.clear.preference(key: KeyFrames.self, value: [index: geometry.frame(in: .named("keyboard"))])
+        })
+        .contextMenu {
+            Button(LocalizedStringKey(item == nil ? "Bind Action…" : "Edit Binding…")) { state.editingSlot = index }
+                .disabled(state.isMoving)
+        }
+    }
+
+    static func dropSlot(at point: CGPoint, frames: [Int: CGRect]) -> Int? {
+        frames.first { $0.value.contains(point) }?.key
+    }
+
+    private var dropSlot: Int? { Self.dropSlot(at: dragLocation, frames: keyFrames) }
 
     private var keyboardPanel: some View {
         GeometryReader { geometry in
@@ -129,16 +197,7 @@ struct ContentView: View {
                         ForEach(KeyboardLayout.rows[row], id: \.self) { key in
                             let position = KeyboardLayout.keys.firstIndex(of: key)!
                             let index = state.keyboardPage * KeyboardLayout.keys.count + position
-                            let item = state.launchers.first { $0.slot == index }
-                            KeyCapView(key: String(key), item: item, width: width, action: {
-                                if let item { state.onLaunch?(item) }
-                                else { state.editingSlot = index }
-                            }, onRemove: {
-                                unbindFailed = state.onBind?(nil, index) != true
-                            })
-                            .contextMenu {
-                                Button(LocalizedStringKey(item == nil ? "Bind Action…" : "Edit Binding…")) { state.editingSlot = index }
-                            }
+                            keyCap(key: String(key), index: index, width: width)
                         }
                     }
                     .offset(x: row == 2 ? 12 : (row == 3 ? 22 : 0))
@@ -147,9 +206,63 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .coordinateSpace(name: "keyboard")
+        .onPreferenceChange(KeyFrames.self) { keyFrames = $0 }
+        .overlay(alignment: .topLeading) {
+            if let source = state.draggingSlot,
+               let item = state.launchers.first(where: { $0.slot == source }) {
+                KeyCapFace(key: String(KeyboardLayout.keys[source % KeyboardLayout.keys.count]),
+                           item: item, width: keyFrames[source]?.width ?? 70)
+                    .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
+                    .position(dragLocation)
+                    .allowsHitTesting(false)
+            }
+        }
         .padding(.horizontal, 30)
     }
 
+}
+
+private struct KeyFrames: PreferenceKey {
+    static let defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+// Share the exact keycap artwork with the drag preview.
+private struct KeyCapFace: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let key: String
+    let item: LaunchpickItem?
+    let width: CGFloat
+    var hovered = false
+    var dropTargeted = false
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .launcherControlBackground))
+                .overlay(RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(hovered ? 0.08 : 0)))
+            if let item {
+                Image(nsImage: item.icon)
+                    .resizable().scaledToFit()
+                    .padding(item.icon.isTemplate ? width * 0.24 : 7)
+                Text(key).font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(colorScheme == .dark ? Color.white : Color.primary)
+                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0), radius: 1, y: 1)
+                    .padding(5)
+            } else {
+                Text(key).font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.92) : Color.primary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(width: width, height: width)
+        .overlay(RoundedRectangle(cornerRadius: 16)
+            .strokeBorder((hovered || dropTargeted) ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.12), lineWidth: dropTargeted ? 2 : 0.75))
+        .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+    }
 }
 
 private struct KeyCapView: View {
@@ -157,6 +270,10 @@ private struct KeyCapView: View {
     let key: String
     let item: LaunchpickItem?
     let width: CGFloat
+    let dropTargeted: Bool
+    let dragging: Bool
+    let onDrag: (CGPoint) -> Void
+    let onDrop: (CGPoint) -> Void
     let action: () -> Void
     let onRemove: () -> Void
     @State private var hovered = false
@@ -167,28 +284,7 @@ private struct KeyCapView: View {
         ZStack(alignment: .topTrailing) {
             Button(action: action) {
                 VStack(spacing: 5) {
-                    ZStack(alignment: .bottomTrailing) {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(nsColor: .launcherControlBackground))
-                            .overlay(RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(hovered ? 0.08 : 0)))
-                        if let item {
-                            Image(nsImage: item.icon)
-                                .resizable().scaledToFit()
-                                .padding(item.icon.isTemplate ? width * 0.24 : 7)
-                            Text(key).font(.system(size: 11, weight: .bold, design: .rounded))
-                                .foregroundStyle(colorScheme == .dark ? Color.white : Color.primary)
-                                .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0), radius: 1, y: 1)
-                                .padding(5)
-                        } else {
-                            Text(key).font(.system(size: 18, weight: .semibold, design: .rounded))
-                                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.92) : Color.primary)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                    }
-                    .frame(width: width, height: width)
-                    .overlay(RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(hovered ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.12), lineWidth: 0.75))
-                    .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                    KeyCapFace(key: key, item: item, width: width, hovered: hovered, dropTargeted: dropTargeted)
                     Text(item?.name ?? "")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.75) : Color.secondary)
@@ -198,9 +294,11 @@ private struct KeyCapView: View {
                 }
             }
             .buttonStyle(.plain)
+            .opacity(dragging ? 0.35 : 1)
+            .modifier(BindingDragGesture(enabled: item != nil, onDrag: onDrag, onDrop: onDrop))
             .accessibilityLabel(item.map { "\(key), \($0.name)" } ?? L("%@ · Click to bind", key))
 
-            if item != nil && hovered {
+            if item != nil && hovered && !dragging {
                 Button(action: onRemove) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .bold))
@@ -227,6 +325,19 @@ private struct KeyCapView: View {
         .padding(.trailing, -6)
         .animation(.easeOut(duration: 0.12), value: hovered)
         .zIndex(hovered ? 1 : 0)
+    }
+}
+
+private struct BindingDragGesture: ViewModifier {
+    let enabled: Bool
+    let onDrag: (CGPoint) -> Void
+    let onDrop: (CGPoint) -> Void
+    @ViewBuilder func body(content: Content) -> some View {
+        if enabled {
+            content.highPriorityGesture(DragGesture(minimumDistance: 6, coordinateSpace: .named("keyboard"))
+                .onChanged { onDrag($0.location) }
+                .onEnded { onDrop($0.location) })
+        } else { content }
     }
 }
 

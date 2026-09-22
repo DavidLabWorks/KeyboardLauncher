@@ -18,6 +18,7 @@
 - **38 个物理键位**：四行键盘布局，删除绑定不会导致其他绑定移位。配置跨越多页时显示翻页按钮。
 - **四类动作**：打开应用并传入可选参数、打开网址、执行 Shell 命令、发送录入的键盘快捷键。
 - **快捷绑定**：点击空键添加绑定，右键点击已绑定按键进行编辑；悬浮时点击右上角的 × 可快速解绑。
+- **拖拽换绑**：将已绑定的键帽拖到空键可移动绑定，拖到已绑定按键可交换绑定。目标键位高亮，图标即时更新，配置在后台保存。
 - **独立编辑窗口**：编辑绑定时启动器保持显示，应用选择器提供可搜索的图标网格。
 - **自定义图标**：使用应用图标、分类与搜索的 SF Symbols、输入完整系统符号名称，或选择本地图片。可用系统符号取决于 macOS 版本。
 - **可配置唤起方式**：录入组合快捷键，或设置某个按键的双击，包括左、右两侧的修饰键。两种方式均可单独清除，长按、重复和组合按键不会计为双击。
@@ -69,7 +70,7 @@ SIGNING_IDENTITY="你的代码签名身份" bash mac/deploy.sh
 产物位置：
 
 - 应用：`mac/build/KeyboardLauncher.app`
-- 安装镜像：`mac/dist/KeyboardLauncher-1.0.0-<架构>.dmg`
+- 安装镜像：`mac/dist/KeyboardLauncher-1.0.1-<架构>.dmg`
 - 安装位置：`/Applications/KeyboardLauncher.app`
 - 安装备份：`mac/dist/backup/`
 
@@ -134,3 +135,7 @@ bash mac/Tests/InstalledAppCheck.sh
 自动检查不能替代权限、多屏、共享键鼠，以及其他应用全局快捷键的实际操作验证。
 
 macOS 实现起源于 [Launchpick](https://github.com/scorredoira/launchpick)，并逐步调整为本文描述的键盘面板交互。
+
+## 发布版本号
+
+统一修改项目根目录 `app.json` 中的 `name` 和 `version`，macOS 和 Windows 构建都会读取它；Windows 设置页和安装包信息也使用同一版本号。

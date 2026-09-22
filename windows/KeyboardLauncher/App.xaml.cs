@@ -5,6 +5,7 @@ namespace KeyboardLauncher;
 
 public partial class App : Application
 {
+    internal static string DisplayName => System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyProductAttribute>(typeof(App).Assembly)!.Product;
     private Mutex? instance;
     private EventWaitHandle? activationEvent;
     private RegisteredWaitHandle? activationWait;
@@ -33,6 +34,7 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        if (Environment.GetCommandLineArgs().Contains("--launch-probe")) { RunLaunchProbe(); return; }
         instance = new Mutex(true, "Local\\KeyboardLauncher.Windows." + Environment.UserName, out bool created);
         if (!created)
         {
@@ -61,12 +63,16 @@ public partial class App : Application
             if (Environment.GetCommandLineArgs().Contains("--theme-smoke-test")) RunThemeSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--control-smoke-test")) RunControlSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--panel-smoke-test")) RunPanelSmokeTest();
+            if (Environment.GetCommandLineArgs().Contains("--unbind-smoke-test")) RunUnbindSmokeTest();
+            if (Environment.GetCommandLineArgs().Contains("--drag-smoke-test")) RunDragSmokeTest();
+            if (Environment.GetCommandLineArgs().Contains("--application-launch-smoke-test") || Environment.GetCommandLineArgs().Contains("--explorer-launch-smoke-test") || Environment.GetCommandLineArgs().Contains("--cursor-launch-smoke-test")) RunApplicationLaunchSmokeTest();
         }
         catch (Exception ex) { Native.MessageBoxW(0, ex.ToString(), L.T("Keyboard Launcher 启动失败"), 0x10); Quit(); }
     }
 
     internal void Save(LauncherConfig config)
     {
+        if (BindingSavePending) throw new InvalidOperationException(L.T("正在保存绑定，请稍后重试。"));
         if (ConfigLoadFailed) throw new InvalidOperationException(L.T("原配置未能加载。请打开配置目录，修复或备份并移走 config.json 后重启，避免覆盖原数据。"));
         config.Validate();
         desktop!.Configure(config);
@@ -76,6 +82,32 @@ public partial class App : Application
         Config = config; StartupError = null; L.Language = config.Language;
         panel!.Refresh(); settings?.ApplyTheme();
         if (languageChanged) { desktop.RefreshLanguage(); settings?.ApplyLanguage(); }
+    }
+
+    private Task? bindingSave;
+    internal bool BindingSavePending => bindingSave != null;
+
+    internal async Task MoveBinding(int source, int destination)
+    {
+        if (BindingSavePending || source == destination || Config.At(source) == null) return;
+        if (ConfigLoadFailed) throw new InvalidOperationException(L.T("原配置未能加载。请打开配置目录，修复或备份并移走 config.json 后重启，避免覆盖原数据。"));
+        var original = Config;
+        var updated = original.MoveBinding(source, destination);
+        updated.Validate();
+        Config = updated;
+        panel!.RefreshMovedBindings(original, source, destination);
+        try
+        {
+            bindingSave = Task.Run(() => Store.Save(updated));
+            await bindingSave;
+        }
+        catch
+        {
+            Config = original;
+            panel.RefreshMovedBindings(updated, destination, source);
+            throw;
+        }
+        finally { bindingSave = null; }
     }
 
     internal bool HasPressedKeys => desktop?.IsAnyKeyDown == true;
@@ -170,6 +202,56 @@ public partial class App : Application
         finally { desktop.Toggle -= Count; Quit(); }
     }
 
+    private async void RunDragSmokeTest()
+    {
+        var original = Config;
+        var report = Path.Combine(AppContext.BaseDirectory, "drag-smoke-test.txt");
+        try
+        {
+            Config = Config.Bind(0, new Launcher { Name = "Drag A", Exec = "notepad.exe", Icon = "A" })
+                .Bind(1, new Launcher { Name = "Drag B", KeyboardShortcut = "ctrl+c", Icon = "B" });
+            panel!.Refresh(); panel.Show(); await Task.Delay(150);
+            var before = panel.KeyVisualsForSmokeTest();
+            var previous = Config; Config = Config.MoveBinding(0, 1);
+            panel.RefreshMovedBindings(previous, 0, 1);
+            var after = panel.KeyVisualsForSmokeTest();
+            if (!ReferenceEquals(before[3], after[7]) || !ReferenceEquals(before[7], after[3]))
+                throw new Exception("Swap recreated icon visuals");
+            for (int i = 0; i < before.Length; i++)
+                if (i != 3 && i != 7 && !ReferenceEquals(before[i], after[i]))
+                    throw new Exception("Unrelated visual recreated at " + i);
+            previous = Config; Config = Config.MoveBinding(1, 0);
+            panel.RefreshMovedBindings(previous, 1, 0);
+            var rollback = panel.KeyVisualsForSmokeTest();
+            if (!ReferenceEquals(before[3], rollback[3])) throw new Exception("Rollback lost original icon");
+            File.WriteAllText(report, "PASS: immediate icon reparenting, swap and rollback; unrelated key visuals preserved. User configuration unchanged.");
+        }
+        catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
+        finally { Config = original; Quit(); }
+    }
+
+    private async void RunUnbindSmokeTest()
+    {
+        var original = Config;
+        var report = Path.Combine(AppContext.BaseDirectory, "unbind-smoke-test.txt");
+        try
+        {
+            Config = new LauncherConfig { Theme = original.Theme, Language = original.Language,
+                Launchers = [new() { KeyIndex = 0, Name = "Test", Exec = "cmd.exe", Icon = "A" },
+                    new() { KeyIndex = 1, Name = "Unchanged", Exec = "cmd.exe", Icon = "B" }] };
+            panel!.Refresh(); panel.Show(); await Task.Delay(200);
+            if (!panel.HasNeutralFocus) throw new InvalidOperationException("Reopened panel retained button focus");
+            var before = panel.KeyVisualsForSmokeTest();
+            Config = Config.Bind(0, null); panel.Refresh(); await Task.Delay(200);
+            var after = panel.KeyVisualsForSmokeTest();
+            for (int i = 0; i < before.Length; i++)
+                if (i != 3 && !ReferenceEquals(before[i], after[i])) throw new Exception($"Unrelated visual recreated at {i}");
+            if (ReferenceEquals(before[3], after[3])) throw new Exception("Removed binding was not updated");
+            File.WriteAllText(report, "PASS: unbinding updates only the affected key content; all key buttons, captions and unrelated icons retain their visual instances. User configuration unchanged.");
+        }
+        catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
+        finally { Config = original; Quit(); }
+    }
     private async void RunPanelSmokeTest()
     {
         var report = Path.Combine(AppContext.BaseDirectory, "panel-smoke-test.txt");
@@ -177,6 +259,7 @@ public partial class App : Application
         try
         {
             panel!.Show(); await Task.Delay(300);
+            if (!panel.HasNeutralFocus) throw new InvalidOperationException("Initial focus selected an action button");
             var region = Native.CreateRoundRectRgn(0, 0, 1, 1, 1, 1);
             try
             {
@@ -190,11 +273,12 @@ public partial class App : Application
             await Task.Delay(300);
             if (Native.IsWindowVisible(panel.Handle)) throw new InvalidOperationException("Escape did not hide panel");
             panel.Show(); await Task.Delay(200);
+            if (!panel.HasNeutralFocus) throw new InvalidOperationException("Reopened panel retained button focus");
             probe = new Window { Title = "Keyboard Launcher focus test", Content = new Microsoft.UI.Xaml.Controls.TextBlock { Text = "Focus test" } };
             probe.Activate(); Native.SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(probe));
             await Task.Delay(500);
             if (Native.IsWindowVisible(panel.Handle)) throw new InvalidOperationException("Focus loss did not hide panel");
-            File.WriteAllText(report, "PASS: rounded window region, Escape through keyboard hook, automatic hide on focus loss.");
+            File.WriteAllText(report, "PASS: neutral focus on initial open and reopen, rounded window region, Escape through keyboard hook, automatic hide on focus loss.");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { probe?.Close(); Quit(); }
@@ -202,6 +286,7 @@ public partial class App : Application
 
     internal void OpenSettings()
     {
+        if (BindingSavePending) return;
         panel?.Hide(false);
         if (settings == null)
         {
@@ -212,8 +297,9 @@ public partial class App : Application
         Native.SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(settings));
     }
 
-    internal void Quit()
+    internal async void Quit()
     {
+        if (bindingSave != null) { try { await bindingSave; } catch { } }
         desktop?.Dispose(); desktop = null;
         activationWait?.Unregister(null); activationEvent?.Dispose();
         settings?.Close(); panel?.Close();

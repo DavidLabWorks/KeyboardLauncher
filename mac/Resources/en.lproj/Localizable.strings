@@ -131,3 +131,5 @@
 "Your apps, one keystroke away." = "Your apps, one keystroke away.";
 "e.g. ~/projects/my-app" = "e.g. ~/projects/my-app";
 "Esc  Close" = "Esc  Close";
+
+"Could not move binding. Check that the configuration folder is writable." = "Could not move binding. Check that the configuration folder is writable.";

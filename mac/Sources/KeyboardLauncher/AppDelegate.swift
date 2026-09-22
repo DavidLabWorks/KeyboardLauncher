@@ -31,6 +31,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var launcherModifiers = CGEventFlags.maskCommand
     private var suppressSystemShortcut = false
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard state.isMoving else { return .terminateNow }
+        // Do not abandon an accepted drag while its atomic save is in flight.
+        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+            guard self?.state.isMoving != true else { return }
+            timer.invalidate()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
@@ -57,11 +68,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         state.onSettings = { [weak self] in self?.openSettings() }
 
         state.onBind = { [weak self] launcher, slot in
-            var config = LaunchpickConfig.load()
-            config.bind(launcher, to: slot)
-            guard LaunchpickConfig.save(config) else { return false }
+            guard self?.state.isMoving == false else { return false }
+            guard LaunchpickConfig.update({ config in
+                config.bind(launcher, to: slot)
+                return true
+            }) else { return false }
             self?.reloadLaunchers()
             return true
+        }
+
+        state.onMove = { source, destination, completion in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let success = LaunchpickConfig.update { $0.moveBinding(from: source, to: destination) }
+                DispatchQueue.main.async { completion(success) }
+            }
         }
 
         // Load shortcuts from config
@@ -301,6 +321,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func reloadLaunchers() {
+        guard !state.isMoving else { return }
         let config = LaunchpickConfig.load()
         state.launchers = config.launchers.enumerated().map { index, configItem in
             LaunchpickItem(
@@ -393,6 +414,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let appToRestore = previousApp
         previousApp = nil
         panel.cancelHeaderDrag()
+        state.draggingSlot = nil
         panel.orderOut(nil)
         state.editingSlot = nil
 

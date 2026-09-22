@@ -4,9 +4,6 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <RootNamespace>KeyboardLauncher</RootNamespace>
-    <Version>1.0.0</Version>
-    <Product>Keyboard Launcher</Product>
-    <Title>Keyboard Launcher</Title>
     <Description>A native Windows keyboard launcher</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/AppIcon.ico</ApplicationIcon>
@@ -28,4 +25,15 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <ProjectReference Include="../KeyboardLauncher.Core/KeyboardLauncher.Core.csproj" />
   </ItemGroup>
+  <Target Name="LoadAppMetadata" BeforeTargets="PrepareForBuild;GetAssemblyVersion;GenerateNuspec">
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)../read-app-metadata.ps1&quot; -OutputFile &quot;$(IntermediateOutputPath)AppMetadata.xml&quot;" />
+    <XmlPeek XmlInputPath="$(IntermediateOutputPath)AppMetadata.xml" Query="/app/name/text()">
+      <Output TaskParameter="Result" PropertyName="Product" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(IntermediateOutputPath)AppMetadata.xml" Query="/app/version/text()">
+      <Output TaskParameter="Result" PropertyName="Version" />
+    </XmlPeek>
+    <PropertyGroup><Title>$(Product)</Title><AssemblyTitle>$(Product)</AssemblyTitle></PropertyGroup>
+  </Target>
 </Project>

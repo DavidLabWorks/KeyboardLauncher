@@ -9,12 +9,21 @@ using Windows.Graphics;
 
 namespace KeyboardLauncher;
 
-internal sealed class PanelWindow : Window
+internal sealed partial class PanelWindow : Window
 {
     private readonly App app;
     private readonly StackPanel rows = new() { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock pageLabel = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid root = new() { Padding = new Thickness(30, 0, 30, 0) };
+    // Own initial keyboard focus without highlighting an action button.
+    private readonly Button focusHost = new()
+    {
+        IsTabStop = true, UseSystemFocusVisuals = false, Width = 1, Height = 1, Opacity = 0,
+        IsHitTestVisible = true, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        VerticalContentAlignment = VerticalAlignment.Stretch
+    };
+    internal bool HasNeutralFocus => ReferenceEquals(FocusManager.GetFocusedElement(root.XamlRoot), focusHost);
     private readonly Button previous, next;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer focusCheck;
     private readonly PanelShadow shadow;
@@ -25,12 +34,15 @@ internal sealed class PanelWindow : Window
     private Native.Point dragStart;
     private PointInt32 dragWindowStart;
     private int page;
+    private int renderedPage = -1;
+    private string renderedLanguage = "";
+    private readonly List<Action<bool>> refreshKeys = [];
     private Action refreshLanguage = () => { };
     public nint Handle { get; }
 
     public PanelWindow(App app)
     {
-        this.app = app; Title = "Keyboard Launcher";
+        this.app = app; Title = App.DisplayName;
         Handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         shadow = new PanelShadow(Handle);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
@@ -64,7 +76,7 @@ internal sealed class PanelWindow : Window
         var header = new Grid(); header.ColumnDefinitions.Add(new()); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var title = new DragPanel { Spacing = 12, Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Stretch, Background = new SolidColorBrush(Colors.Transparent) };
         title.Children.Add(Ui.AppIcon(34));
-        title.Children.Add(new TextBlock { Text = "Keyboard Launcher", FontSize = 15, VerticalAlignment = VerticalAlignment.Center, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        title.Children.Add(new TextBlock { Text = App.DisplayName, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         dragSurface = title;
         title.PointerPressed += (_, e) =>
         {
@@ -104,6 +116,8 @@ internal sealed class PanelWindow : Window
         var closeHint = new TextBlock { Text = L.T("Esc  关闭"), FontSize = 11, Opacity = .65, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center }; paging.Children.Add(closeHint);
         Grid.SetColumn(paging, 1); footer.Children.Add(paging); Grid.SetRow(footer, 2); root.Children.Add(footer);
         root.Width = 1040; root.Height = 560;
+        root.Children.Insert(0, focusHost);
+        focusHost.Loaded += (_, _) => { if (visible) focusHost.Focus(FocusState.Programmatic); };
         Content = new Viewbox { Child = new Border { Child = root, CornerRadius = new CornerRadius(26) }, Stretch = Stretch.Uniform };
         // Do not rebuild the visual tree from ActualThemeChanged: WinUI is traversing
         // that tree during theme propagation. Each existing control updates its brushes.
@@ -120,61 +134,108 @@ internal sealed class PanelWindow : Window
             ToolTipService.SetToolTip(previous, L.T("上一页（←）"));
             ToolTipService.SetToolTip(next, L.T("下一页（→）"));
         };
+        InitializeBindingDrag();
         Refresh();
     }
 
     internal void Refresh()
     {
         refreshLanguage();
-        ((FrameworkElement)Content).RequestedTheme = Ui.Theme(app.Config.Theme);
-        backdrop.ApplyTheme(root.ActualTheme);
-        page = Math.Min(page, app.Config.PageCount); // One extra page is available for new bindings.
-        rows.Children.Clear();
-        var index = page * KeyboardLayout.Count;
-        for (var rowIndex = 0; rowIndex < KeyboardLayout.Rows.Length; rowIndex++)
+        var theme = Ui.Theme(app.Config.Theme);
+        if (((FrameworkElement)Content).RequestedTheme != theme)
+            ((FrameworkElement)Content).RequestedTheme = theme;
+        if (renderedPage < 0) backdrop.ApplyTheme(root.ActualTheme);
+        page = Math.Min(page, app.Config.PageCount);
+        bool languageChanged = renderedLanguage != app.Config.Language;
+        if (renderedPage != page)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(rowIndex == 2 ? 12 : rowIndex == 3 ? 22 : 0, 0, 0, 0) };
-            foreach (var key in KeyboardLayout.Rows[rowIndex])
+            CancelBindingDrag();
+            keyCaps.Clear(); dropMarks.Clear();
+            rows.Children.Clear(); refreshKeys.Clear();
+            var index = page * KeyboardLayout.Count;
+            for (var rowIndex = 0; rowIndex < KeyboardLayout.Rows.Length; rowIndex++)
             {
-                var slot = index++; var item = app.Config.At(slot);
-                var cap = new Grid();
-                if (item != null)
-                {
-                    cap.Children.Add(Ui.KeyIcon(item, 70));
-                    cap.Children.Add(new TextBlock { Text = key.ToString(), FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Margin = new Thickness(5), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom });
-                }
-                else cap.Children.Add(new TextBlock { Text = key.ToString(), FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-                var button = new PointerButton { Content = cap, Width = 70, Height = 70, Padding = new Thickness(0), CornerRadius = new CornerRadius(16), HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-                Ui.GlassButton(button, item != null);
-                button.Shadow = new ThemeShadow(); button.Translation = new System.Numerics.Vector3(0, 0, 8);
-                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"{key} · {item?.Name ?? L.T("未绑定")}");
-                button.Click += async (_, _) => { if (item == null) await Edit(slot); else await Launch(item); };
-                var menu = new MenuFlyout(); var edit = new MenuFlyoutItem { Text = item == null ? L.T("绑定动作…") : L.T("编辑绑定…") };
-                edit.Click += async (_, _) => await Edit(slot); menu.Items.Add(edit); button.ContextFlyout = menu;
-                var keyCell = new StackPanel { Spacing = 5, Width = 70 };
-                var hitArea = new Grid(); hitArea.Children.Add(button);
-                if (item != null)
-                {
-                    var remove = Ui.UnbindButton();
-                    ToolTipService.SetToolTip(remove, L.T("移除绑定"));
-                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(remove, L.F("解除 {0} 的绑定", key));
-                    remove.Click += async (_, _) => { try { app.Save(app.Config.Bind(slot, null)); } catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); } };
-                    hitArea.Children.Add(remove);
-                    hitArea.PointerEntered += (_, _) => remove.Visibility = Visibility.Visible;
-                    hitArea.PointerExited += (_, _) => remove.Visibility = Visibility.Collapsed;
-                }
-                keyCell.Children.Add(hitArea);
-                keyCell.Children.Add(new TextBlock { Text = item?.Name ?? "", FontSize = 11, Height = 14, TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, Opacity = .75 });
-                row.Children.Add(keyCell);
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(rowIndex == 2 ? 12 : rowIndex == 3 ? 22 : 0, 0, 0, 0) };
+                foreach (var key in KeyboardLayout.Rows[rowIndex]) row.Children.Add(CreateKeyCell(index++, key));
+                rows.Children.Add(row);
             }
-            rows.Children.Add(row);
+            renderedPage = page;
         }
+        foreach (var refresh in refreshKeys) refresh(languageChanged);
+        renderedLanguage = app.Config.Language;
         pageLabel.Text = page < app.Config.PageCount ? $"{page + 1} / {app.Config.PageCount}" : L.F("{0} · 新页", page + 1);
         previous.IsEnabled = page > 0; next.IsEnabled = page < Math.Min(99, app.Config.PageCount);
         previous.Visibility = next.Visibility = pageLabel.Visibility = app.Config.PageCount > 1 || page > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private StackPanel CreateKeyCell(int slot, char key)
+    {
+        Launcher? current = null;
+        bool initialized = false;
+        var cap = new Grid { Background = new SolidColorBrush(Colors.Transparent) };
+        var button = new PointerButton { Content = cap, Width = 70, Height = 70, Padding = new Thickness(0), CornerRadius = new CornerRadius(16),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
+        Ui.GlassButton(button, false);
+        button.Shadow = new ThemeShadow(); button.Translation = new System.Numerics.Vector3(0, 0, 8);
+        button.Click += async (_, _) => { if (current == null) await Edit(slot); else await Launch(current); };
+        var menu = new MenuFlyout(); var edit = new MenuFlyoutItem();
+        edit.Click += async (_, _) => await Edit(slot); menu.Items.Add(edit); button.ContextFlyout = menu;
+        var hitArea = new Grid(); hitArea.Children.Add(button);
+        var dropMark = new Border { BorderBrush = new SolidColorBrush(Colors.DodgerBlue), BorderThickness = new Thickness(2),
+            CornerRadius = new CornerRadius(16), IsHitTestVisible = false, Visibility = Visibility.Collapsed,
+            Translation = new System.Numerics.Vector3(0, 0, 10) };
+        hitArea.Children.Add(dropMark);
+        keyCaps[slot] = cap; dropMarks[slot] = dropMark;
+        AttachBindingDrag(cap, slot, button);
+        var remove = Ui.UnbindButton(); hitArea.Children.Add(remove);
+        remove.Click += async (_, _) =>
+        {
+            if (app.BindingSavePending) return;
+            try { app.Save(app.Config.Bind(slot, null)); }
+            catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); }
+        };
+        hitArea.PointerEntered += (_, _) => { if (current != null && bindingSurface == null) remove.Visibility = Visibility.Visible; };
+        hitArea.PointerExited += (_, _) => remove.Visibility = Visibility.Collapsed;
+        var caption = new TextBlock { FontSize = 11, Height = 14, TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, Opacity = .75 };
+        var cell = new StackPanel { Spacing = 5, Width = 70 };
+        cell.Children.Add(hitArea); cell.Children.Add(caption);
+        refreshKeys.Add(languageChanged =>
+        {
+            var item = app.Config.At(slot);
+            if (!initialized || current != item)
+            {
+                current = item is null ? null : item with { };
+                cap.Children.Clear();
+                if (current != null)
+                {
+                    cap.Children.Add(movedIcons.Remove(slot, out var icon) ? icon : Ui.KeyIcon(current, 70));
+                    cap.Children.Add(new TextBlock { Text = key.ToString(), FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Margin = new Thickness(5), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom });
+                }
+                else
+                {
+                    if (remove.FocusState != FocusState.Unfocused) button.Focus(FocusState.Programmatic);
+                    remove.Visibility = Visibility.Collapsed;
+                    cap.Children.Add(new TextBlock { Text = key.ToString(), FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+                }
+                caption.Text = current?.Name ?? "";
+            }
+            else if (!languageChanged) return;
+            initialized = true;
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"{key} · {current?.Name ?? L.T("未绑定")}");
+            edit.Text = current == null ? L.T("绑定动作…") : L.T("编辑绑定…");
+            ToolTipService.SetToolTip(remove, L.T("移除绑定"));
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(remove, L.F("解除 {0} 的绑定", key));
+        });
+        return cell;
+    }
+
+    internal object[] KeyVisualsForSmokeTest() => rows.Children.Cast<StackPanel>()
+        .SelectMany(row => row.Children.Cast<StackPanel>()).SelectMany(cell =>
+        {
+            var hit = (Grid)cell.Children[0]; var button = (Button)hit.Children[0];
+            return new object[] { cell, button, cell.Children[1], ((Grid)button.Content).Children[0] };
+        }).ToArray();
     public void Toggle() { if (editing || launching) return; if (visible) Hide(true); else Show(); }
     public void Show()
     {
@@ -190,7 +251,13 @@ internal sealed class PanelWindow : Window
         AppWindow.MoveAndResize(new RectInt32(info.Work.Left + (info.Work.Right - info.Work.Left - width) / 2, info.Work.Top + (info.Work.Bottom - info.Work.Top - height) / 2, width, height));
         UpdateWindowShape();
         visible = true;
-        AppWindow.Show(); Activate(); Native.ActivatePanel(Handle); root.Focus(FocusState.Programmatic);
+        AppWindow.Show(); Activate(); Native.ActivatePanel(Handle); focusHost.Focus(FocusState.Programmatic);
+        // Activation can restore the old XAML focus after Show returns.
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (visible && !editing && Native.GetForegroundWindow() == Handle)
+                focusHost.Focus(FocusState.Programmatic);
+        });
         UpdateShadow();
         focusCheck.Start();
     }
@@ -228,6 +295,7 @@ internal sealed class PanelWindow : Window
 
     public void Hide(bool restore)
     {
+        CancelBindingDrag();
         StopDragging();
         focusCheck.Stop();
         shadow.Hide();
@@ -235,10 +303,11 @@ internal sealed class PanelWindow : Window
         if (restore && Native.IsWindow(previousWindow)) Native.SetForegroundWindow(previousWindow);
     }
 
-    private void ChangePage(int direction) { page = Math.Clamp(page + direction, 0, Math.Min(99, app.Config.PageCount)); Refresh(); }
+    private void ChangePage(int direction) { CancelBindingDrag(); page = Math.Clamp(page + direction, 0, Math.Min(99, app.Config.PageCount)); Refresh(); }
     internal async void HandleNativeKey(uint key, uint scanCode)
     {
         if (!visible || editing || launching) return;
+        if (bindingSurface != null) { if (key == 0x1B) CancelBindingDrag(); return; }
         if (key == 0x1B) { Hide(true); return; }
         if (key is 0x25 or 0x27) { ChangePage(key == 0x25 ? -1 : 1); return; }
         var slot = KeyboardLayout.Slot((int)scanCode, page);
@@ -247,6 +316,7 @@ internal sealed class PanelWindow : Window
     private async void HandleKey(object sender, KeyRoutedEventArgs e)
     {
         if (editing || launching || !visible) return;
+        if (bindingSurface != null) { e.Handled = true; if (e.Key == Windows.System.VirtualKey.Escape) CancelBindingDrag(); return; }
         if (e.Key == Windows.System.VirtualKey.Escape) { e.Handled = true; Hide(true); return; }
         if (Native.Modifiers != 0) return;
         if (e.Key is Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right)
@@ -262,7 +332,7 @@ internal sealed class PanelWindow : Window
 
     private async Task Edit(int slot)
     {
-        if (editing) return;
+        if (editing || app.BindingSavePending) return;
         editing = true; app.SuspendHotkeys(true);
         try { await BindingEditor.Show(app, root.XamlRoot, Handle, slot); }
         finally { editing = false; app.SuspendHotkeys(false); CheckForeground(); }
@@ -277,8 +347,17 @@ internal sealed class PanelWindow : Window
 
     private async Task Launch(Launcher launcher)
     {
-        if (launching) return; launching = true; Hide(true);
-        try { await ActionRunner.Run(launcher, previousWindow, () => app.HasPressedKeys); }
+        if (launching) return;
+        launching = true;
+        bool sendsShortcut = !string.IsNullOrWhiteSpace(launcher.KeyboardShortcut);
+        // Start shell activation while we still own the foreground; restoring the
+        // previous app first can prevent keyboard-triggered launches coming forward.
+        if (sendsShortcut) Hide(true);
+        try
+        {
+            await ActionRunner.Run(launcher, previousWindow, () => app.HasPressedKeys, () => Hide(false));
+            if (!sendsShortcut && visible) Hide(false);
+        }
         catch (Exception ex) { Show(); await Ui.Error(root.XamlRoot, ex.Message); }
         finally { launching = false; }
     }

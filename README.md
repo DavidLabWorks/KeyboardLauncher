@@ -18,6 +18,7 @@ The features below describe the **macOS implementation**. Windows has its own be
 - **38 physical key positions:** a four-row keyboard layout. Bindings stay in their slots when another binding is removed. Configurations spanning multiple pages show page navigation controls.
 - **Four action types:** open an app with optional arguments, open a URL, run a shell command, or send a recorded keyboard shortcut.
 - **Quick binding:** click an empty key to create a binding; right-click a bound key to edit. Hover over a bound key and click the upper-right × to remove it.
+- **Drag to rebind:** drag a bound keycap to an empty key to move it, or onto another binding to swap them. The destination highlights and icons update immediately while changes save in the background.
 - **Independent editor:** the binding editor opens in its own window while the launcher remains visible. Select applications from a searchable icon grid.
 - **Custom icons:** use the application icon, a categorized and searchable SF Symbols collection, an exact supported symbol name, or a local image. Symbol availability depends on macOS.
 - **Configurable activation:** record a key combination or choose a key to double-tap, including left/right modifier keys. Each activation method has a Clear button. Long holds, repeats, and chords do not count as double-taps.
@@ -69,7 +70,7 @@ A suitable signing certificate and its private key must be available in the macO
 Outputs:
 
 - App: `mac/build/KeyboardLauncher.app`
-- Disk image: `mac/dist/KeyboardLauncher-1.0.0-<architecture>.dmg`
+- Disk image: `mac/dist/KeyboardLauncher-1.0.1-<architecture>.dmg`
 - Installed app: `/Applications/KeyboardLauncher.app`
 - Installation backups: `mac/dist/backup/`
 
@@ -135,3 +136,7 @@ bash mac/Tests/InstalledAppCheck.sh
 Automated checks do not replace hands-on verification of permissions, multiple displays, keyboard-sharing tools, or other applications' global shortcuts.
 
 The macOS implementation started from [Launchpick](https://github.com/scorredoira/launchpick) and has been adapted into the keyboard-panel workflow described above.
+
+## Release version
+
+Edit the root `app.json` file to set the shared macOS and Windows display name and version. Both build pipelines read it; Windows settings and installer metadata use the same version.

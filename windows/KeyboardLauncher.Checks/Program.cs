@@ -44,6 +44,54 @@ Check("Language defaults to English and round-trips without renaming user bindin
         File.Delete(path); File.Delete(path + ".bak");
     }
 });
+Check("Script files execute with literal paths and PowerShell uses File mode", () =>
+{
+    if (!OperatingSystem.IsWindows()) return;
+    var directory = Path.Combine(Path.GetTempPath(), "KeyboardLauncher 脚本 & %TEMP% ! " + Guid.NewGuid());
+    Directory.CreateDirectory(directory);
+    var files = new List<string>();
+    try
+    {
+        foreach (var extension in new[] { ".cmd", ".bat", ".ps1" })
+        {
+            var path = Path.Combine(directory, "test & %PATH% ! script" + extension); files.Add(path);
+            File.WriteAllText(path, extension == ".ps1" ? "Write-Output 'SCRIPT_OK'" : "@echo off\r\necho SCRIPT_OK\r\n");
+            var start = ScriptAction.CreateStartInfo(path);
+            Assert(start.WorkingDirectory == directory);
+            var config = LauncherConfig.Default().Bind(0, new Launcher { Name = "Script", ActionType = "script", Exec = path });
+            config.Validate();
+            if (extension == ".ps1")
+            {
+                Assert(start.ArgumentList.SequenceEqual(new[] { "-NoProfile", "-File", path }));
+                continue;
+            }
+            start.RedirectStandardOutput = true; start.RedirectStandardError = true; start.CreateNoWindow = true;
+            using var process = System.Diagnostics.Process.Start(start)!;
+            var output = process.StandardOutput.ReadToEnd(); var error = process.StandardError.ReadToEnd();
+            if (!process.WaitForExit(5000)) { process.Kill(); throw new Exception("Script timed out"); }
+            if (process.ExitCode != 0 || !output.Contains("SCRIPT_OK")) throw new Exception(error + output);
+        }
+        Assert(!ScriptAction.IsSupported("Windows+R"));
+        Assert(!ScriptAction.IsSupported(Path.Combine(directory, "test.exe")));
+        Throws(() => ScriptAction.CreateStartInfo("cmd /c echo test"));
+        try { ScriptAction.CreateStartInfo(Path.Combine(directory, "missing.cmd")); throw new Exception("Missing file accepted"); }
+        catch (FileNotFoundException) { }
+    }
+    finally { foreach (var file in files) File.Delete(file); Directory.Delete(directory); }
+});
+Check("Dragging moves or swaps complete bindings without changing the original", () =>
+{
+    var config = new LauncherConfig { Launchers = [new() { Name = "App", Exec = "app.exe", Icon = "icon.png" }, new() { Name = "Shortcut", KeyboardShortcut = "ctrl+shift+x" }] };
+    var moved = config.MoveBinding(0, 12);
+    Assert(moved.At(0) == null && moved.At(12)!.Icon == "icon.png" && moved.At(1)!.Name == "Shortcut");
+    var swapped = moved.MoveBinding(12, 1);
+    Assert(swapped.At(1)!.Exec == "app.exe" && swapped.At(12)!.KeyboardShortcut == "ctrl+shift+x");
+    Assert(config.At(0)!.KeyIndex == null && config.At(1)!.KeyIndex == null);
+    Assert(ReferenceEquals(swapped.MoveBinding(1, 1), swapped));
+    Assert(ReferenceEquals(swapped.MoveBinding(0, 2), swapped));
+    var restored = System.Text.Json.JsonSerializer.Deserialize<LauncherConfig>(System.Text.Json.JsonSerializer.Serialize(swapped, ConfigStore.JsonOptions), ConfigStore.JsonOptions)!;
+    Assert(restored.At(12)!.KeyboardShortcut == "ctrl+shift+x");
+});
 Check("ANSI positions and pages match macOS", () =>
 {
     Assert(KeyboardLayout.Keys.Length == 38);

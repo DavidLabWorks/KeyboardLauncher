@@ -37,7 +37,7 @@ internal sealed class SettingsWindow : Window
             navigation.Items.Add(new PointerListViewItem { Content = row, Tag = labels[i] });
         }
         navigation.SelectionChanged += (_, _) => ShowPage(); sidebar.Children.Add(navigation);
-        var brand = new TextBlock { Text = "Keyboard Launcher", FontSize = 12, Opacity = .6, Margin = new Thickness(18) };
+        var brand = new TextBlock { Text = App.DisplayName, FontSize = 12, Opacity = .6, Margin = new Thickness(18) };
         Grid.SetRow(brand, 1); sidebar.Children.Add(brand); root.Children.Add(sidebar);
         body.RowDefinitions.Add(new() { Height = GridLength.Auto }); body.RowDefinitions.Add(new()); body.Children.Add(heading);
         var scroll = new ScrollViewer { Content = detail, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -172,8 +172,8 @@ internal sealed class SettingsWindow : Window
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 20 };
         brand.Children.Add(Ui.AppIcon(76));
         var name = new StackPanel { Spacing = 7, VerticalAlignment = VerticalAlignment.Center };
-        name.Children.Add(new TextBlock { Text = "Keyboard Launcher", FontSize = 24, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        name.Children.Add(Note(L.T("你的应用，一键即达。"))); name.Children.Add(Note(L.T("版本 1.0"))); brand.Children.Add(name); detail.Children.Add(Card(brand, 18));
+        name.Children.Add(new TextBlock { Text = App.DisplayName, FontSize = 24, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        name.Children.Add(Note(L.T("你的应用，一键即达。"))); name.Children.Add(Note(L.F("版本 {0}", typeof(App).Assembly.GetName().Version!.ToString(3)))); brand.Children.Add(name); detail.Children.Add(Card(brand, 18));
         var theme = SegmentedPicker(L.T("外观"),
             [(L.T("系统"), "system"), (L.T("浅色"), "light"), (L.T("深色"), "dark")], app.Config.Theme,
             value => DispatcherQueue.TryEnqueue(() => { if (app.Config.Theme != value) Save(app.Config with { Theme = value }); }));

@@ -233,15 +233,14 @@ class SettingsState: ObservableObject {
         if !spotlightShortcut.isEmpty {
             suppressSystemShortcut = false
         }
-        let config = LaunchpickConfig(
-            shortcut: shortcut,
-            doubleTapKey: doubleTapKey.isEmpty ? nil : doubleTapKey,
-            suppressSystemShortcut: suppressSystemShortcut,
-            spotlightShortcut: spotlightShortcut.isEmpty ? nil : spotlightShortcut,
-            columns: columns,
-            launchers: LaunchpickConfig.load().launchers
-        )
-        LaunchpickConfig.save(config)
+        LaunchpickConfig.update { config in
+            config.shortcut = shortcut
+            config.doubleTapKey = doubleTapKey.isEmpty ? nil : doubleTapKey
+            config.suppressSystemShortcut = suppressSystemShortcut
+            config.spotlightShortcut = spotlightShortcut.isEmpty ? nil : spotlightShortcut
+            config.columns = columns
+            return true
+        }
         NotificationCenter.default.post(name: Notification.Name("ReloadHotKey"), object: nil)
     }
 
@@ -357,7 +356,7 @@ struct SettingsView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
             .safeAreaInset(edge: .bottom) {
-                Text("Keyboard Launcher").font(.caption).foregroundStyle(.secondary)
+                Text(verbatim: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Keyboard Launcher").font(.caption).foregroundStyle(.secondary)
                     .padding(18).frame(maxWidth: .infinity, alignment: .leading)
             }
         } detail: {
@@ -627,7 +626,7 @@ struct SettingsDetailView: View {
                         Image(nsImage: IconResolver.appIcon)
                             .resizable().scaledToFit().frame(width: 76, height: 76)
                         VStack(alignment: .leading, spacing: 7) {
-                            Text("Keyboard Launcher").font(.system(size: 24, weight: .semibold))
+                            Text(verbatim: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Keyboard Launcher").font(.system(size: 24, weight: .semibold))
                             Text("Your apps, one keystroke away.")
                                 .font(.system(size: 13)).foregroundStyle(.secondary)
                             Text(String(format: L("Version %@"), Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"))

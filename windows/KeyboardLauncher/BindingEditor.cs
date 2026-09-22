@@ -40,6 +40,7 @@ internal static class BindingEditor
         private readonly List<Button> segments = [];
         private readonly List<Action> paints = [];
         private Button chooseApp = null!;
+        private bool scriptFile = true;
         private int selected;
         private List<AppEntry> apps = [];
 
@@ -47,11 +48,12 @@ internal static class BindingEditor
         {
             this.app = app; this.slot = slot; root.Language = app.Config.Language;
             var existing = app.Config.At(slot);
-            selected = existing?.KeyboardShortcut != null ? 3 : existing?.ActionType switch { "url" => 1, "command" => 2, _ => 0 };
+            selected = existing?.KeyboardShortcut != null ? 3 : existing?.ActionType switch { "url" => 1, "command" or "script" => 2, _ => 0 };
             name.Text = existing?.Name ?? L.T("新建项目");
             application.Text = selected == 0 ? existing?.Exec ?? "" : "";
             url.Text = selected == 1 ? existing?.Exec ?? "" : "";
             command.Text = selected == 2 ? existing?.Exec ?? "" : "";
+            scriptFile = existing?.ActionType != "command";
             arguments.Text = existing?.Arguments ?? "";
             shortcut.Text = existing?.KeyboardShortcut ?? "";
             icon.Text = existing?.Icon ?? "";
@@ -184,7 +186,7 @@ internal static class BindingEditor
             {
                 case 0: fields.Children.Add(chooseApp); fields.Children.Add(Field(L.T("参数   可选"), arguments, L.T("例如 C:\\Projects\\my-app"))); break;
                 case 1: fields.Children.Add(Field(L.T("网址"), url, "https://example.com")); break;
-                case 2: fields.Children.Add(Field(L.T("Shell 命令"), command, L.T("输入 Windows 命令或脚本路径"))); break;
+                case 2: fields.Children.Add(BuildScriptPicker()); break;
                 case 3:
                     fields.Children.Add(Field(L.T("快捷键"), shortcut, L.T("点击后按下快捷键")));
                     fields.Children.Add(new TextBlock { Text = L.T("返回之前的应用，然后执行快捷键。支持全局快捷键。"), FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap });
@@ -193,12 +195,13 @@ internal static class BindingEditor
             PaintSegments(); UpdatePreview(); Validate();
         }
         private Launcher Draft() => new() { Name = name.Text.Trim(), Exec = selected switch { 0 => application.Text.Trim(), 1 => url.Text.Trim(), 2 => command.Text.Trim(), _ => "" },
-            ActionType = selected switch { 1 => "url", 2 => "command", _ => "application" }, Arguments = selected == 0 ? arguments.Text : "",
+            ActionType = selected switch { 1 => "url", 2 => scriptFile ? "script" : "command", _ => "application" }, Arguments = selected == 0 ? arguments.Text : "",
             KeyboardShortcut = selected == 3 ? shortcut.Text.Trim() : null, Icon = string.IsNullOrWhiteSpace(icon.Text) ? null : icon.Text.Trim() };
         private void Validate()
         {
             try
             {
+                if (selected == 2 && scriptFile && !File.Exists(command.Text)) { save.IsEnabled = false; return; }
                 if (selected == 3) Hotkey.Parse(shortcut.Text, false);
                 app.Config.Bind(slot, Draft()).Validate(); save.IsEnabled = true;
             }
@@ -222,6 +225,50 @@ internal static class BindingEditor
                 ? new FontIcon { Glyph = "\uE739", FontSize = 27, Opacity = .6 }
                 : Ui.KeyIcon(new Launcher { Exec = application.Text }, 48));
             hint.Text = string.IsNullOrWhiteSpace(icon.Text) ? L.T("根据命令自动识别图标") : L.T("使用自定义图标");
+        }
+        private StackPanel BuildScriptPicker()
+        {
+            var panel = new StackPanel { Spacing = 10 };
+            panel.Children.Add(Label(L.T("脚本文件")));
+            var text = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+            var fileName = new TextBlock { Text = string.IsNullOrWhiteSpace(command.Text) ? L.T("选择脚本文件…")
+                : scriptFile ? Path.GetFileName(command.Text) : L.T("已有命令"), FontSize = 14,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+            var path = new TextBlock { Text = command.Text, FontSize = 11, Opacity = .65,
+                TextWrapping = TextWrapping.Wrap, MaxLines = 2, TextTrimming = TextTrimming.CharacterEllipsis };
+            text.Children.Add(fileName); text.Children.Add(path);
+            var row = new Grid { ColumnSpacing = 12 };
+            row.ColumnDefinitions.Add(new() { Width = new GridLength(32) }); row.ColumnDefinitions.Add(new());
+            row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            row.Children.Add(new FontIcon { Glyph = "\uE943", FontSize = 26, Opacity = .7 });
+            Grid.SetColumn(text, 1); row.Children.Add(text);
+            var browseIcon = new FontIcon { Glyph = "\uE8B7", FontSize = 18 }; Grid.SetColumn(browseIcon, 2); row.Children.Add(browseIcon);
+            var button = new PointerButton { Content = row, MinHeight = 64, Padding = new Thickness(14),
+                HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(10) };
+            void PaintPicker() => button.Background = Brush(button.ActualTheme == ElementTheme.Dark ? 47 : 249);
+            button.Loaded += (_, _) => PaintPicker(); button.ActualThemeChanged += (_, _) => PaintPicker(); PaintPicker();
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, L.T("选择脚本文件…"));
+            button.Click += async (_, _) =>
+            {
+                button.IsEnabled = false;
+                try
+                {
+                    var file = await Pick(".cmd", ".bat", ".ps1");
+                    if (file == null) return;
+                    scriptFile = true; command.Text = file.Path;
+                    fileName.Text = file.Name; path.Text = file.Path;
+                    if (string.IsNullOrWhiteSpace(name.Text) || name.Text == L.T("新建项目")) name.Text = Path.GetFileNameWithoutExtension(file.Name);
+                    error.Visibility = Visibility.Collapsed;
+                    UpdatePreview(); Validate();
+                }
+                catch (Exception ex) { error.Text = ex.Message; error.Visibility = Visibility.Visible; }
+                finally { button.IsEnabled = true; }
+            };
+            panel.Children.Add(button);
+            panel.Children.Add(new TextBlock { Text = L.T("支持 .cmd、.bat 和 .ps1，点击选择或更换脚本。"), FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap });
+            if (!scriptFile) panel.Children.Add(new TextBlock { Text = L.T("已有命令会保留；选择文件后将替换为脚本。"), FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap });
+            return panel;
         }
         private void BuildAppPicker()
         {

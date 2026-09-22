@@ -29,18 +29,29 @@ internal static class Native
     [DllImport("gdi32.dll")] internal static extern bool DeleteObject(nint obj);
     [DllImport("user32.dll")] internal static extern int GetWindowRgn(nint hwnd, nint region);
     [DllImport("gdi32.dll")] internal static extern bool PtInRegion(nint region, int x, int y);
+    internal delegate bool EnumWindowProc(nint hwnd, nint param);
+    [DllImport("user32.dll")] internal static extern bool EnumWindows(EnumWindowProc callback, nint param);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int GetClassNameW(nint hwnd, System.Text.StringBuilder name, int count);
+    [DllImport("user32.dll")] internal static extern bool IsIconic(nint hwnd);
+    [DllImport("user32.dll")] internal static extern bool AllowSetForegroundWindow(uint processId);
+    [DllImport("user32.dll")] internal static extern nint GetShellWindow();
     [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(nint hwnd);
     [DllImport("kernel32.dll")] internal static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] internal static extern bool AttachThreadInput(uint from, uint to, bool attach);
     internal static bool ActivatePanel(nint hwnd)
     {
-        if (SetForegroundWindow(hwnd)) return true;
-        var foreground = GetForegroundWindow();
-        var targetThread = GetWindowThreadProcessId(foreground, out _);
-        var currentThread = GetCurrentThreadId();
-        if (targetThread == 0 || targetThread == currentThread || !AttachThreadInput(currentThread, targetThread, true)) return false;
-        try { return SetForegroundWindow(hwnd); }
-        finally { AttachThreadInput(currentThread, targetThread, false); }
+        if (GetForegroundWindow() == hwnd) return true;
+        var current = GetCurrentThreadId();
+        var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+        var destinationThread = GetWindowThreadProcessId(hwnd, out _);
+        var attached = new List<uint>();
+        try
+        {
+            foreach (var thread in new[] { foregroundThread, destinationThread }.Distinct())
+                if (thread != 0 && thread != current && AttachThreadInput(current, thread, true)) attached.Add(thread);
+            return SetForegroundWindow(hwnd);
+        }
+        finally { foreach (var thread in attached) AttachThreadInput(current, thread, false); }
     }
     [DllImport("user32.dll")] internal static extern bool IsWindow(nint hwnd);
     [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(nint hwnd, out uint processId);
