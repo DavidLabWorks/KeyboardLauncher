@@ -21,18 +21,20 @@ internal sealed class DesktopIntegration : IDisposable
     private int hotkeyId = 1;
     private nint recordingWindow;
     private Action<Hotkey>? recordingCallback;
-    public void BeginRecording(nint window, Action<Hotkey> callback)
+    private bool recordingModifierOnly;
+    private uint recordingModifier;
+    public void BeginRecording(nint window, Action<Hotkey> callback, bool modifierOnly = false)
     {
-        recordingWindow = window; recordingCallback = callback; doubleTap.Reset();
+        recordingWindow = window; recordingCallback = callback; recordingModifierOnly = modifierOnly; recordingModifier = 0; doubleTap.Reset();
     }
     public void EndRecording(nint window)
     {
         if (recordingWindow != window) return;
-        recordingCallback = null; recordingWindow = 0; doubleTap.Reset();
+        recordingCallback = null; recordingWindow = 0; recordingModifier = 0; doubleTap.Reset();
     }
     public bool IsAnyKeyDown => down.Count != 0;
     public bool Suspended { get; set; }
-    public event Action? Toggle, Settings, Quit;
+    public event Action? Toggle, TrayMenuRequested;
     public event Action<uint, uint>? PanelKeyPressed;
     internal Action<string>? DoubleTapDiagnostic;
 
@@ -48,7 +50,7 @@ internal sealed class DesktopIntegration : IDisposable
             mouseHook = Native.SetWindowsHookExW(14, mouseProc, Native.GetModuleHandleW(null), 0);
             if (mouseHook == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), L.T("无法安装鼠标钩子。"));
             tray = new() { Size = (uint)Marshal.SizeOf<Native.NotifyIconData>(), Window = hwnd, Id = 1, Flags = 7, CallbackMessage = 0x8001,
-                Icon = Native.LoadImageW(0, Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"), 1, 32, 32, 0x10), Tip = L.T("Keyboard Launcher · 键盘启动器"), Info = "", InfoTitle = "" };
+                Icon = Native.LoadImageW(0, Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"), 1, 32, 32, 0x10), Tip = L.T("指间 · Keyboard Launcher"), Info = "", InfoTitle = "" };
             if (!Native.Shell_NotifyIconW(0, ref tray)) throw new Win32Exception(L.T("无法创建托盘图标。"));
         }
         catch { Dispose(); throw; }
@@ -77,30 +79,15 @@ internal sealed class DesktopIntegration : IDisposable
         if (message == 0x8001)
         {
             if ((uint)lParam == 0x202) dispatcher.TryEnqueue(() => Toggle?.Invoke());
-            if ((uint)lParam == 0x205) ShowTrayMenu();
+            if ((uint)lParam is 0x205 or 0x7B) dispatcher.TryEnqueue(() => TrayMenuRequested?.Invoke());
         }
         return Native.DefSubclassProc(window, message, wParam, lParam);
     }
 
     internal void RefreshLanguage()
     {
-        tray.Tip = L.T("Keyboard Launcher · 键盘启动器");
+        tray.Tip = L.T("指间 · Keyboard Launcher");
         Native.Shell_NotifyIconW(1, ref tray);
-    }
-
-    private void ShowTrayMenu()
-    {
-        var menu = Native.CreatePopupMenu();
-        try
-        {
-            Native.AppendMenuW(menu, 0, 1, L.T("打开启动器")); Native.AppendMenuW(menu, 0, 2, L.T("设置…"));
-            Native.AppendMenuW(menu, 0x800, 0, null); Native.AppendMenuW(menu, 0, 3, L.T("退出"));
-            Native.GetCursorPos(out var point); Native.SetForegroundWindow(hwnd);
-            var result = Native.TrackPopupMenu(menu, 0x100 | 2, point.X, point.Y, 0, hwnd, 0);
-            Native.PostMessageW(hwnd, 0, 0, 0);
-            dispatcher.TryEnqueue(() => { if (result == 1) Toggle?.Invoke(); if (result == 2) Settings?.Invoke(); if (result == 3) Quit?.Invoke(); });
-        }
-        finally { Native.DestroyMenu(menu); }
     }
 
     private nint KeyboardMessage(int code, nint wParam, nint lParam)
@@ -133,7 +120,10 @@ internal sealed class DesktopIntegration : IDisposable
             if (isDown)
             {
                 swallowed.Add(key.Key);
-                if (!repeat && key.Key is not (0x10 or 0x11 or 0x12 or >= 0xA0 and <= 0xA5 or 0x5B or 0x5C))
+                // Repeated key-downs from a held key must not cancel single-key recording.
+                if (recordingModifierOnly && !repeat)
+                    recordingModifier = down.Count == 1 && key.Key is (>= 0xA0 and <= 0xA5 or 0x20) ? key.Key : 0;
+                if (!recordingModifierOnly && !repeat && key.Key is not (0x10 or 0x11 or 0x12 or >= 0xA0 and <= 0xA5 or 0x5B or 0x5C))
                 {
                     uint mods = 0;
                     if (down.Overlaps(new uint[] { 0x11, 0xA2, 0xA3 })) mods |= 2;
@@ -144,6 +134,12 @@ internal sealed class DesktopIntegration : IDisposable
                     dispatcher.TryEnqueue(() => { if (recordingCallback == callback) callback(captured); });
                 }
                 return 1;
+            }
+            if (recordingModifierOnly && recordingModifier == key.Key && down.Count == 0)
+            {
+                var captured = new Hotkey(0, key.Key);
+                recordingModifier = 0;
+                dispatcher.TryEnqueue(() => { if (recordingCallback == callback) callback(captured); });
             }
             // Let releases through for keys pressed before recording began.
             if (swallowed.Remove(key.Key)) return 1;

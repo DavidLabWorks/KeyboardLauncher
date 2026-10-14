@@ -13,7 +13,7 @@ internal static class PointerCursors
 
 internal sealed class PointerButton : Button
 {
-    public PointerButton() { Loaded += (_, _) => Update(); IsEnabledChanged += (_, _) => Update(); }
+    public PointerButton() { CornerRadius = new CornerRadius(8); DefaultStyleKey = typeof(Button); Loaded += (_, _) => Update(); IsEnabledChanged += (_, _) => Update(); }
     private void Update() => ProtectedCursor = IsEnabled ? PointerCursors.Hand : PointerCursors.Arrow;
 }
 internal sealed class DragPanel : StackPanel
@@ -22,12 +22,12 @@ internal sealed class DragPanel : StackPanel
 }
 internal sealed class PointerComboBox : ComboBox
 {
-    public PointerComboBox() { Loaded += (_, _) => Update(); IsEnabledChanged += (_, _) => Update(); }
+    public PointerComboBox() { DefaultStyleKey = typeof(ComboBox); Loaded += (_, _) => Update(); IsEnabledChanged += (_, _) => Update(); }
     private void Update() => ProtectedCursor = IsEnabled ? PointerCursors.Hand : PointerCursors.Arrow;
 }
 internal sealed class PointerRadioButton : RadioButton
 {
-    public PointerRadioButton() { Loaded += (_, _) => Update(); IsEnabledChanged += (_, _) => Update(); }
+    public PointerRadioButton() { DefaultStyleKey = typeof(RadioButton); Loaded += (_, _) => Update(); IsEnabledChanged += (_, _) => Update(); }
     private void Update() => ProtectedCursor = IsEnabled ? PointerCursors.Hand : PointerCursors.Arrow;
 }
 internal sealed class PointerHost : ContentControl
@@ -36,11 +36,11 @@ internal sealed class PointerHost : ContentControl
 }
 internal sealed class PointerListViewItem : ListViewItem
 {
-    public PointerListViewItem() { Loaded += (_, _) => ProtectedCursor = PointerCursors.Hand; }
+    public PointerListViewItem() { DefaultStyleKey = typeof(ListViewItem); Loaded += (_, _) => ProtectedCursor = PointerCursors.Hand; }
 }
 internal sealed class PointerGridViewItem : GridViewItem
 {
-    public PointerGridViewItem() { Loaded += (_, _) => ProtectedCursor = PointerCursors.Hand; }
+    public PointerGridViewItem() { DefaultStyleKey = typeof(GridViewItem); Loaded += (_, _) => ProtectedCursor = PointerCursors.Hand; }
 }
 internal sealed class PointerGridView : GridView
 {

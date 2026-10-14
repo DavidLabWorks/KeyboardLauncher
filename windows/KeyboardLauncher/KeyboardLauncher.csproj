@@ -12,7 +12,11 @@
     <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
+    <!-- Publish self-contained desktop files; package.ps1 wraps them with the Windows SDK MSIX tool. -->
     <WindowsPackageType>None</WindowsPackageType>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <StoreBuild Condition="'$(StoreBuild)' == ''">true</StoreBuild>
+    <DefineConstants Condition="'$(StoreBuild)' == 'true'">$(DefineConstants);STORE</DefineConstants>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
     <ImplicitUsings>enable</ImplicitUsings>

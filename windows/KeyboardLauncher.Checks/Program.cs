@@ -5,6 +5,38 @@ void Check(string name, Action check) { check(); Console.WriteLine($"PASS {name}
 void Assert(bool condition) { if (!condition) throw new Exception("Assertion failed"); }
 void Throws(Action action) { try { action(); } catch (FormatException) { return; } throw new Exception("Expected FormatException"); }
 
+Check("File and folder actions preserve their type and literal paths across storage and moves", () =>
+{
+    var storage = Path.Combine(Path.GetTempPath(), "KeyboardLauncher-paths-" + Guid.NewGuid() + ".json");
+    try
+    {
+        var store = new ConfigStore(storage);
+        var config = new LauncherConfig();
+        foreach (var (kind, slot) in new[] { ("file", 0), ("folder", 1) })
+        {
+            var target = @"C:\中文 folder\O'Brien & report" + (kind == "file" ? ".txt" : "");
+            config = config.Bind(slot, new Launcher { Name = kind, Exec = target, ActionType = kind });
+            store.Save(config);
+            var loaded = store.Load().At(slot)!;
+            Assert(loaded.ActionType == kind && loaded.Exec == target && loaded.Arguments == "");
+        }
+        var moved = config.MoveBinding(0, 1);
+        Assert(moved.At(0)!.ActionType == "folder" && moved.At(1)!.ActionType == "file");
+        Throws(() => config.Bind(2, new Launcher { Name = "Empty", Exec = "", ActionType = "folder" }).Validate());
+    }
+    finally { File.Delete(storage); File.Delete(storage + ".bak"); }
+});
+
+Check("Store licenses require active entitlement and trial expiration is enforced", () =>
+{
+    var now = DateTimeOffset.UtcNow;
+    Assert(new AppLicense(true, true, now.AddDays(7)).CanUse(now));
+    Assert(!new AppLicense(true, true, now).CanUse(now));
+    Assert(!new AppLicense(true, true, now.AddSeconds(-1)).CanUse(now));
+    Assert(!new AppLicense(false, true, now.AddDays(7)).CanUse(now));
+    Assert(!new AppLicense(false, false, DateTimeOffset.MaxValue).CanUse(now));
+    Assert(new AppLicense(true, false, DateTimeOffset.MinValue).CanUse(now));
+});
 Check("Language defaults to English and round-trips without renaming user bindings", () =>
 {
     var previousLanguage = L.Language;
@@ -22,6 +54,7 @@ Check("Language defaults to English and round-trips without renaming user bindin
             Assert(store.Load().Language == language);
             Assert(store.Load().At(0)!.Name == "我的 Terminal");
             Assert(L.T("保存") == (language == "en" ? "Save" : "保存"));
+            Assert(L.T("指间 · Keyboard Launcher") == (language == "en" ? "Keyboard Launcher" : "指间 · Keyboard Launcher"));
             Assert(L.F("绑定按键 {0}", "D") == (language == "en" ? "Bind Key D" : "绑定按键 D"));
             try { Hotkey.Parse("ctrl"); }
             catch (FormatException ex) { Assert(ex.Message == L.T("唤起快捷键需要修饰键和一个普通按键。")); }
@@ -166,6 +199,31 @@ Check("Side-specific double taps reject the opposite side and mixed taps", () =>
         Assert(Tap(selected, 750));
         detector.Reset(); Assert(!Tap(selected, 1000)); Assert(Tap(selected, 1150));
     }
+});
+Check("Space double-tap persists and rejects holds, repeats, chords and slow taps", () =>
+{
+    var config = LauncherConfig.Default() with { DoubleTapKey = "space" };
+    config.Validate();
+    var json = System.Text.Json.JsonSerializer.Serialize(config, ConfigStore.JsonOptions);
+    Assert(System.Text.Json.JsonSerializer.Deserialize<LauncherConfig>(json, ConfigStore.JsonOptions)!.DoubleTapKey == "space");
+    var detector = new DoubleModifierTap { Modifier = "space" };
+    bool Tap(long at, long duration = 50) {
+        Assert(!detector.Handle(0x20, true, at, false, false));
+        return detector.Handle(0x20, false, at + duration, false, false);
+    }
+    Assert(!Tap(0)); Assert(Tap(150));
+    Assert(!Tap(1000, 350)); Assert(!Tap(1400));
+    detector.Reset(); Assert(!Tap(2000)); Assert(!Tap(2600));
+    detector.Reset(); Assert(!Tap(3000));
+    detector.Handle(0x20, true, 3100, false, false);
+    detector.Handle(0x20, true, 3150, true, false);
+    Assert(!detector.Handle(0x20, false, 3200, false, false));
+    Assert(!Tap(3300));
+    detector.Reset(); Assert(!Tap(4000));
+    detector.Handle(0x20, true, 4100, false, true);
+    Assert(!detector.Handle(0x20, false, 4150, false, true));
+    Assert(!Tap(4300));
+    detector.Reset(); Assert(!Tap(5000)); detector.Reset(); Assert(!Tap(5150));
 });
 Check("Double Control requires isolated short presses", () =>
 {

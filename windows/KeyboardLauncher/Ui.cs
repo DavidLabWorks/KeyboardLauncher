@@ -92,7 +92,7 @@ internal static class Ui
             try { return new Image { Source = new BitmapImage(new Uri(Path.GetFullPath(path))), Width = 24, Height = 24 }; }
             catch { /* Invalid image paths use a text fallback. */ }
         }
-        if (item != null && item.ActionType == "application" && string.IsNullOrWhiteSpace(item.KeyboardShortcut))
+        if (item != null && item.ActionType is ("application" or "file" or "folder") && string.IsNullOrWhiteSpace(item.KeyboardShortcut))
         {
             var target = Environment.ExpandEnvironmentVariables(item.Exec);
             if (!Path.IsPathRooted(target))

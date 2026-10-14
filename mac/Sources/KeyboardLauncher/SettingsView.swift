@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 
 enum ActionType: String, CaseIterable, Equatable {
     case openApp = "Open App"
+    case openFile = "Open File"
+    case openFolder = "Open Folder"
     case openURL = "Open URL"
     case shellCommand = "Shell Command"
     case keyboardShortcut = "Keyboard Shortcut"
@@ -23,6 +25,8 @@ struct EditableLauncher: Identifiable, Equatable {
     var actionType: ActionType = .openApp
     var appName: String = ""
     var appArgs: String = ""
+    var filePath: String = ""
+    var folderPath: String = ""
     var url: String = ""
     var shellCommand: String = ""
     var keyboardShortcut: String = ""
@@ -37,6 +41,12 @@ struct EditableLauncher: Identifiable, Equatable {
         if let shortcut = config.keyboardShortcut {
             l.actionType = .keyboardShortcut
             l.keyboardShortcut = shortcut
+        } else if config.actionType == "file", let path = config.targetPath {
+            l.actionType = .openFile
+            l.filePath = path
+        } else if config.actionType == "folder", let path = config.targetPath {
+            l.actionType = .openFolder
+            l.folderPath = path
         } else if let appName = extractAppName(from: exec) {
             l.actionType = .openApp
             l.appName = appName
@@ -76,6 +86,10 @@ struct EditableLauncher: Identifiable, Equatable {
             } else {
                 exec = "open -a '\(appName)' '\(appArgs)'"
             }
+        case .openFile, .openFolder:
+            let path = actionType == .openFile ? filePath : folderPath
+            let expanded = (path as NSString).expandingTildeInPath
+            exec = path.isEmpty ? "" : "open -- '" + expanded.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
         case .openURL:
             exec = url.isEmpty ? "" : "open '\(url)'"
         case .shellCommand:
@@ -93,12 +107,19 @@ struct EditableLauncher: Identifiable, Equatable {
         }
 
         return ConfigLauncher(name: name, exec: exec, icon: icon,
-                              keyboardShortcut: actionType == .keyboardShortcut ? keyboardShortcut : nil)
+                              keyboardShortcut: actionType == .keyboardShortcut ? keyboardShortcut : nil,
+                              actionType: actionType == .openFile ? "file" : actionType == .openFolder ? "folder" : nil,
+                              targetPath: actionType == .openFile ? filePath : actionType == .openFolder ? folderPath : nil)
     }
 
     func resolvedIcon() -> NSImage {
         switch iconMode {
         case .auto:
+            if actionType == .openFile || actionType == .openFolder {
+                let path = actionType == .openFile ? filePath : folderPath
+                if !path.isEmpty { return NSWorkspace.shared.icon(forFile: (path as NSString).expandingTildeInPath) }
+                return NSImage(systemSymbolName: actionType == .openFolder ? "folder" : "doc", accessibilityDescription: nil)!
+            }
             if actionType == .keyboardShortcut { return NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)! }
             return IconResolver.resolve(icon: nil, exec: toConfig().exec)
         case .sfSymbol:
@@ -313,13 +334,14 @@ enum AppAppearance: String, CaseIterable {
 }
 
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general = "General", shortcuts = "Shortcuts", system = "System"
+    case general = "General", shortcuts = "Shortcuts", system = "System", about = "About"
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .general: return "gearshape.fill"
         case .shortcuts: return "command"
         case .system: return "macwindow"
+        case .about: return "info.circle.fill"
         }
     }
     var color: Color {
@@ -327,6 +349,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: return .gray
         case .shortcuts: return .blue
         case .system: return .purple
+        case .about: return .blue
         }
     }
 }
@@ -339,32 +362,63 @@ struct SettingsView: View {
 
     var body: some View {
         let _ = locale
-        NavigationSplitView {
-            List(SettingsPage.allCases, selection: $selection) { page in
-                Label {
-                    Text(LocalizedStringKey(page == .system ? "System Settings Page" : page.rawValue)).font(.system(size: 13, weight: .medium))
-                } icon: {
-                    Image(systemName: page.icon)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 26, height: 26)
-                        .background(page.color.gradient, in: RoundedRectangle(cornerRadius: 7))
+        settingsLayout
+    }
+
+    private var settingsLayout: some View {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            Group {
+                if #available(macOS 14.0, *) {
+                    sidebar.toolbar(removing: .sidebarToggle)
+                } else {
+                    sidebar
                 }
-                .padding(.vertical, 5)
-                .tag(page)
             }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-            .safeAreaInset(edge: .bottom) {
-                Text(verbatim: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Keyboard Launcher").font(.caption).foregroundStyle(.secondary)
-                    .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-            }
+            .navigationSplitViewColumnWidth(220)
         } detail: {
             SettingsDetailView(state: state, launchAtLogin: $launchAtLogin, page: selection ?? .general)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .navigationTitle(LocalizedStringKey(selection == .system ? "System Settings Page" : (selection ?? .general).rawValue))
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 800, minHeight: 520)
+    }
+
+    private var sidebar: some View {
+        List(SettingsPage.allCases, selection: $selection) { page in
+            Label {
+                Text(LocalizedStringKey(page == .system ? "System Settings Page" : page.rawValue)).font(.system(size: 13, weight: .medium))
+            } icon: {
+                Image(systemName: page.icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 26, height: 26)
+                    .background(page.color.gradient, in: RoundedRectangle(cornerRadius: 7))
+            }
+            .padding(.vertical, 5)
+            .tag(page)
+        }
+        .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                Divider().opacity(0.35).padding(.bottom, 4)
+                Button { NSApp.terminate(nil) } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.red.opacity(0.7))
+                            .frame(width: 16)
+                        Text("Quit").font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+                .interactionPointer()
+                Text(verbatim: L("Keyboard Launcher"))
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 18).padding(.bottom, 14).padding(.top, 8)
+        }
     }
 }
 
@@ -614,6 +668,10 @@ struct SettingsDetailView: View {
     let page: SettingsPage
     @AppStorage("appLanguage") private var language = AppLanguage.defaultCode
     @AppStorage("appearanceMode") private var appearanceMode: AppAppearance = .system
+    @State private var checkingForUpdates = false
+    @State private var updateMessage = ""
+    @State private var newerVersion: String?
+    private var currentVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0" }
     @State private var accessibilityGranted = AccessibilityHelper.isTrusted
     @Environment(\.colorScheme) private var colorScheme
 
@@ -622,21 +680,6 @@ struct SettingsDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if page == .general {
-                    HStack(spacing: 20) {
-                        Image(nsImage: IconResolver.appIcon)
-                            .resizable().scaledToFit().frame(width: 76, height: 76)
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(verbatim: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Keyboard Launcher").font(.system(size: 24, weight: .semibold))
-                            Text("Your apps, one keystroke away.")
-                                .font(.system(size: 13)).foregroundStyle(.secondary)
-                            Text(String(format: L("Version %@"), Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(groupBackground, in: RoundedRectangle(cornerRadius: 18))
                 settingsSection("General") {
                     HStack {
                         settingLabel("Language", detail: "Choose the app language.")
@@ -647,7 +690,7 @@ struct SettingsDetailView: View {
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
-                        .frame(width: 210)
+                        .frame(width: 210, alignment: .trailing)
                         .onChange(of: language) { _ in
                             NotificationCenter.default.post(name: AppLanguage.changed, object: nil)
                         }
@@ -663,7 +706,7 @@ struct SettingsDetailView: View {
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
-                        .frame(width: 210)
+                        .frame(width: 210, alignment: .trailing)
                     }
                     Divider()
                     HStack {
@@ -689,6 +732,48 @@ struct SettingsDetailView: View {
                                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
                             }
                             .controlSize(.small)
+                        }
+                    }
+                } else if page == .about {
+                    HStack(spacing: 20) {
+                        Image(nsImage: IconResolver.appIcon)
+                            .resizable().scaledToFit().frame(width: 76, height: 76)
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(verbatim: L("Keyboard Launcher")).font(.system(size: 24, weight: .semibold))
+                            Text("Your apps, one keystroke away.")
+                                .font(.system(size: 13)).foregroundStyle(.secondary)
+                            Text(String(format: L("Version %@"), Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(groupBackground, in: RoundedRectangle(cornerRadius: 18))
+                    settingsSection("About") {
+                        HStack {
+                            settingLabel("GitHub", detail: "Source code and releases.")
+                            Spacer()
+                            Link("DavidLabWorks/KeyboardLauncher", destination: ReleaseUpdate.repository)
+                        }
+                        Divider()
+                        HStack {
+                            settingLabel("Version", detail: String(format: L("Version %@"), currentVersion))
+                            Spacer()
+                            Button(LocalizedStringKey(checkingForUpdates ? "Checking…" : "Check for Updates")) {
+                                Task { await checkForUpdates() }
+                            }
+                            .disabled(checkingForUpdates)
+                        }
+                        if !updateMessage.isEmpty {
+                            Text(LocalizedStringKey(updateMessage)).font(.callout).foregroundStyle(.secondary)
+                        }
+                        if let newerVersion {
+                            HStack {
+                                Text(L("New version available: %@", newerVersion))
+                                Spacer()
+                                Link("View Release", destination: ReleaseUpdate.releases)
+                            }
                         }
                     }
                 } else if page == .shortcuts {
@@ -777,9 +862,11 @@ struct SettingsDetailView: View {
                     }
                 }
                 }
-                Text("Changes save automatically.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if page != .about {
+                    Text("Changes save automatically.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .padding(28)
             .frame(maxWidth: 740)
@@ -789,6 +876,28 @@ struct SettingsDetailView: View {
         .onChange(of: appearanceMode) { $0.apply() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             accessibilityGranted = AccessibilityHelper.isTrusted
+        }
+    }
+
+    @MainActor
+    private func checkForUpdates() async {
+        guard !checkingForUpdates else { return }
+        checkingForUpdates = true
+        updateMessage = ""
+        newerVersion = nil
+        defer { checkingForUpdates = false }
+        do {
+            guard let latest = try await ReleaseUpdate.latestVersion() else {
+                updateMessage = "No public release is available."
+                return
+            }
+            if try ReleaseUpdate.isNewer(latest, than: currentVersion) {
+                newerVersion = latest
+            } else {
+                updateMessage = "You’re up to date."
+            }
+        } catch {
+            updateMessage = "Could not check for updates. Please try again."
         }
     }
 
@@ -880,10 +989,20 @@ struct LauncherDetailView: View {
                     Text("Action").font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary).padding(.leading, 6)
                     VStack(alignment: .leading, spacing: 18) {
-                        Picker("Action", selection: $launcher.actionType) {
-                            ForEach(ActionType.allCases, id: \.self) { Text(LocalizedStringKey($0.rawValue)).tag($0) }
-                        }.pickerStyle(.segmented).labelsHidden()
-                        .controlSize(.small)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
+                            ForEach(ActionType.allCases, id: \.self) { action in
+                                Button { launcher.actionType = action } label: {
+                                    Text(LocalizedStringKey(action.rawValue))
+                                        .font(.system(size: 12, weight: .medium))
+                                        .frame(maxWidth: .infinity, minHeight: 38)
+                                        .foregroundStyle(launcher.actionType == action ? Color.white : Color.primary)
+                                        .background(launcher.actionType == action ? Color.accentColor : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                                }
+                                .buttonStyle(.plain)
+                                .interactionPointer()
+                                .accessibilityAddTraits(launcher.actionType == action ? [.isSelected] : [])
+                            }
+                        }
                         Divider()
                         switch launcher.actionType {
                         case .openApp:
@@ -918,6 +1037,8 @@ struct LauncherDetailView: View {
                                 }.frame(width: 380, height: 400)
                             }
                             field("Arguments", hint: "Optional", placeholder: "e.g. ~/projects/my-app", text: $launcher.appArgs)
+                        case .openFile, .openFolder:
+                            pathPicker(folder: launcher.actionType == .openFolder)
                         case .openURL:
                             field("URL", placeholder: "https://example.com", text: $launcher.url)
                         case .keyboardShortcut:
@@ -946,6 +1067,35 @@ struct LauncherDetailView: View {
                 launcher.name = newName
             }
         }
+    }
+
+    private func pathPicker(folder: Bool) -> some View {
+        let path = folder ? launcher.folderPath : launcher.filePath
+        return Button {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = !folder
+            panel.canChooseDirectories = folder
+            panel.allowsMultipleSelection = false
+            panel.canCreateDirectories = folder
+            panel.title = L(folder ? "Choose a folder…" : "Choose a file…")
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            if folder { launcher.folderPath = url.path } else { launcher.filePath = url.path }
+            if launcher.name.isEmpty || launcher.name == "New Item" || launcher.name == L("New Item") {
+                launcher.name = url.lastPathComponent
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: folder ? "folder" : "doc").font(.title2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(path.isEmpty ? L(folder ? "Choose a folder…" : "Choose a file…") : URL(fileURLWithPath: path).lastPathComponent)
+                    if !path.isEmpty { Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+            }
+            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+        }.buttonStyle(.plain).interactionPointer()
     }
 
     private func field(_ title: String, hint: String = "", placeholder: String, text: Binding<String>) -> some View {

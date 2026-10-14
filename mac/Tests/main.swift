@@ -7,3 +7,5 @@ ShortcutRecordingCheck.main()
 SymbolPickerCheck.main()
 
 try LocalizationCheck.main()
+
+try ReleaseUpdateCheck.main()

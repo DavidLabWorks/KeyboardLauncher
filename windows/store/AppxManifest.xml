@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap uap5 rescap">
+  <!-- package.ps1 replaces identity and display values. These are local preview values only. -->
+  <Identity Name="KeyboardLauncher.LocalPreview" Publisher="CN=KeyboardLauncher Local Preview" Version="1.0.0.0" ProcessorArchitecture="arm64" />
+  <Properties>
+    <DisplayName>Keyboard Launcher</DisplayName>
+    <PublisherDisplayName>Local Preview</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources><Resource Language="en-US" /><Resource Language="zh-CN" /></Resources>
+  <Applications>
+    <Application Id="App" Executable="KeyboardLauncher.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Keyboard Launcher" Description="Keyboard Launcher" BackgroundColor="transparent"
+                          Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <uap5:Extension Category="windows.startupTask" Executable="KeyboardLauncher.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap5:StartupTask TaskId="KeyboardLauncherStartup" Enabled="false" DisplayName="Keyboard Launcher" />
+        </uap5:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
+</Package>

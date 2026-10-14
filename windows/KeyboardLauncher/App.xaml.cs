@@ -5,14 +5,19 @@ namespace KeyboardLauncher;
 
 public partial class App : Application
 {
-    internal static string DisplayName => System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyProductAttribute>(typeof(App).Assembly)!.Product;
+    internal static string DisplayName => L.T("指间 · Keyboard Launcher");
     private Mutex? instance;
     private EventWaitHandle? activationEvent;
     private RegisteredWaitHandle? activationWait;
     private PanelWindow? panel;
     private SettingsWindow? settings;
     private DesktopIntegration? desktop;
-    internal ConfigStore Store { get; } = new();
+    private TrayMenuWindow? trayMenu;
+    internal ConfigStore Store { get; } = StoreIntegration.IsPackaged
+        ? new ConfigStore(Path.Combine(Windows.Storage.ApplicationData.Current.LocalFolder.Path, "config.json"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KeyboardLauncher", "config.json"))
+        : new ConfigStore();
+    internal StoreIntegration Licensing { get; } = new();
     internal LauncherConfig Config { get; private set; } = LauncherConfig.Default();
     internal string? StartupError { get; private set; }
     internal bool ConfigLoadFailed { get; private set; }
@@ -32,14 +37,14 @@ public partial class App : Application
         };
     }
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         if (Environment.GetCommandLineArgs().Contains("--launch-probe")) { RunLaunchProbe(); return; }
         instance = new Mutex(true, "Local\\KeyboardLauncher.Windows." + Environment.UserName, out bool created);
         if (!created)
         {
             try { using var signal = EventWaitHandle.OpenExisting("Local\\KeyboardLauncher.Activate." + Environment.UserName); signal.Set(); }
-            catch (WaitHandleCannotBeOpenedException) { Native.MessageBoxW(0, L.T("Keyboard Launcher 正在启动，请稍后重试。"), "Keyboard Launcher", 0x40); }
+            catch (WaitHandleCannotBeOpenedException) { Native.MessageBoxW(0, L.T("指间 · Keyboard Launcher 正在启动，请稍后重试。"), DisplayName, 0x40); }
             instance.Dispose(); instance = null; Exit(); return;
         }
         try { Config = Store.Load(); }
@@ -48,18 +53,24 @@ public partial class App : Application
         {
             L.Language = Config.Language;
             panel = new PanelWindow(this);
+            await Licensing.InitializeAsync(panel.Handle, panel.DispatcherQueue);
             activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\KeyboardLauncher.Activate." + Environment.UserName);
             activationWait = ThreadPool.RegisterWaitForSingleObject(activationEvent, (_, _) => panel.DispatcherQueue.TryEnqueue(() => panel.Show()), null, Timeout.Infinite, false);
             desktop = new DesktopIntegration(panel.Handle, panel.DispatcherQueue);
-            desktop.Toggle += () => panel.Toggle(); desktop.Settings += OpenSettings; desktop.Quit += Quit;
+            desktop.Toggle += () => panel.Toggle();
+            desktop.TrayMenuRequested += ShowTrayMenu;
             desktop.PanelKeyPressed += panel.HandleNativeKey;
             try { desktop.Configure(Config); }
             catch (Exception ex) { StartupError = ex.Message; }
-            if (!Environment.GetCommandLineArgs().Contains("--background")) panel.Show();
+            var startupActivation = StoreIntegration.IsPackaged && Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent()
+                .GetActivatedEventArgs().Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.StartupTask;
+            if (!startupActivation && !Environment.GetCommandLineArgs().Contains("--background")) panel.Show();
             if (StartupError != null || Environment.GetCommandLineArgs().Contains("--settings")) OpenSettings();
             if (Environment.GetCommandLineArgs().Contains("--icon-smoke-test")) RunIconSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--shortcut-smoke-test")) RunShortcutSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--editor-preview")) panel.PreviewEditor();
+            if (Environment.GetCommandLineArgs().Contains("--tray-menu-preview")) ShowTrayMenu();
+            if (Environment.GetCommandLineArgs().Contains("--tray-menu-smoke-test")) RunTrayMenuSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--theme-smoke-test")) RunThemeSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--control-smoke-test")) RunControlSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--panel-smoke-test")) RunPanelSmokeTest();
@@ -67,7 +78,7 @@ public partial class App : Application
             if (Environment.GetCommandLineArgs().Contains("--drag-smoke-test")) RunDragSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--application-launch-smoke-test") || Environment.GetCommandLineArgs().Contains("--explorer-launch-smoke-test") || Environment.GetCommandLineArgs().Contains("--cursor-launch-smoke-test")) RunApplicationLaunchSmokeTest();
         }
-        catch (Exception ex) { Native.MessageBoxW(0, ex.ToString(), L.T("Keyboard Launcher 启动失败"), 0x10); Quit(); }
+        catch (Exception ex) { Native.MessageBoxW(0, ex.ToString(), L.T("指间 · Keyboard Launcher 启动失败"), 0x10); Quit(); }
     }
 
     internal void Save(LauncherConfig config)
@@ -111,7 +122,7 @@ public partial class App : Application
     }
 
     internal bool HasPressedKeys => desktop?.IsAnyKeyDown == true;
-    internal void BeginShortcutRecording(nint window, Action<Hotkey> callback) => desktop?.BeginRecording(window, callback);
+    internal void BeginShortcutRecording(nint window, Action<Hotkey> callback, bool modifierOnly = false) => desktop?.BeginRecording(window, callback, modifierOnly);
     internal void EndShortcutRecording(nint window) => desktop?.EndRecording(window);
     internal void SuspendHotkeys(bool suspend) { if (desktop != null) desktop.Suspended = suspend; }
 
@@ -143,6 +154,36 @@ public partial class App : Application
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { Quit(); }
     }
+    private void ShowTrayMenu()
+    {
+        trayMenu ??= new TrayMenuWindow(() => Ui.Theme(Config.Theme), () => panel!.Show(), OpenSettings, Quit);
+        trayMenu.Show();
+    }
+
+    private async void RunTrayMenuSmokeTest()
+    {
+        var report = Path.Combine(AppContext.BaseDirectory, "tray-menu-smoke-test.txt");
+        var theme = ElementTheme.Light;
+        var popup = new TrayMenuWindow(() => theme, () => { }, () => { }, () => { });
+        try
+        {
+            foreach (var value in new[] { ElementTheme.Light, ElementTheme.Dark, ElementTheme.Default })
+            {
+                theme = value;
+                popup.Show();
+                await Task.Delay(600);
+                if (!popup.IsOpen) throw new InvalidOperationException("Tray flyout did not open");
+                popup.Dismiss();
+                await Task.Delay(300);
+                if (popup.IsOpen || Native.IsWindowVisible(WinRT.Interop.WindowNative.GetWindowHandle(popup)))
+                    throw new InvalidOperationException("Tray flyout left its host visible after dismissal");
+            }
+            File.WriteAllText(report, "PASS: tray flyout opens and dismisses in light, dark and system themes.");
+        }
+        catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
+        finally { popup.Close(); Quit(); }
+    }
+
     private async void RunThemeSmokeTest()
     {
         var original = Config;
@@ -150,6 +191,21 @@ public partial class App : Application
         try
         {
             OpenSettings();
+            var settingsSize = settings!.AppWindow.Size;
+            settings.AppWindow.Resize(new Windows.Graphics.SizeInt32(320, 240));
+            await Task.Delay(100);
+            var dpi = Native.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(settings)) / 96d;
+            if (settings.AppWindow.Size.Width < (int)(880 * dpi) || settings.AppWindow.Size.Height < (int)(560 * dpi)
+                || !((Microsoft.UI.Windowing.OverlappedPresenter)settings.AppWindow.Presenter).IsMaximizable)
+                throw new InvalidOperationException("Settings minimum size or maximize availability failed.");
+            settings.AppWindow.Resize(settingsSize);
+            var presenter = (Microsoft.UI.Windowing.OverlappedPresenter)settings.AppWindow.Presenter;
+            presenter.Maximize();
+            await Task.Delay(400);
+            if (!settings.IsContentCentered) throw new InvalidOperationException("Maximized settings content is not centered");
+            presenter.Restore();
+            await Task.Delay(200);
+            if (!settings.IsContentCentered) throw new InvalidOperationException("Restored settings content is not centered");
             foreach (var theme in new[] { "light", "dark", "system", "dark", "light", "system" })
             {
                 Config = original with { Theme = theme };
@@ -159,7 +215,7 @@ public partial class App : Application
                 await Task.Delay(200);
                 panel.Hide(false);
             }
-            File.WriteAllText(report, "PASS: six theme transitions, hidden/visible Acrylic panel, settings window. Configuration unchanged.");
+            File.WriteAllText(report, "PASS: six theme transitions, hidden/visible panel, settings window. Configuration unchanged.");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { Config = original; Quit(); }
@@ -176,27 +232,25 @@ public partial class App : Application
         try
         {
             panel!.Hide(false);
-            foreach (var key in new ushort[] { 0xA2, 0xA3, 0xA4, 0xA5, 0xA0, 0xA1 })
+            foreach (var key in new ushort[] { 0xA2, 0xA3, 0xA4, 0xA5, 0xA0, 0xA1, 0x20 })
             {
                 var before = count;
-                desktop.Configure(Config with { DoubleTapKey = key switch { 0xA2 => "leftControl", 0xA3 => "rightControl", 0xA4 => "leftAlt", 0xA5 => "rightAlt", 0xA0 => "leftShift", _ => "rightShift" } });
-                for (var tap = 0; tap < 2; tap++)
+                desktop.Configure(Config with { DoubleTapKey = key switch { 0xA2 => "leftControl", 0xA3 => "rightControl", 0xA4 => "leftAlt", 0xA5 => "rightAlt", 0xA0 => "leftShift", 0xA1 => "rightShift", _ => "space" } });
+                // Batch input so rendering the panel cannot stretch the simulated double-tap interval.
+                var inputs = new uint[] { 0, 2, 0, 2 }.Select(flags => new Native.Input
                 {
-                    foreach (var flags in new uint[] { 0, 2 })
+                    Type = 1, Data = new() { Keyboard = new()
                     {
-                        var input = new Native.Input { Type = 1, Data = new() { Keyboard = new()
-                        {
-                            Key = key, Flags = flags | (key is 0xA3 or 0xA5 ? 1u : 0), ExtraInfo = 0x54455354
-                        } } };
-                        if (Native.SendInput(1, [input], System.Runtime.InteropServices.Marshal.SizeOf<Native.Input>()) != 1)
-                            throw new InvalidOperationException("Test input rejected");
-                        await Task.Delay(60);
-                    }
-                }
+                        Key = key, Flags = flags | (key is 0xA3 or 0xA5 ? 1u : 0), ExtraInfo = 0x54455354
+                    } }
+                }).ToArray();
+                if (Native.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<Native.Input>()) != inputs.Length)
+                    throw new InvalidOperationException("Test input rejected");
                 await Task.Delay(500);
                 observations.Add($"0x{key:X}: {count - before}");
+                if (count - before != 1) throw new InvalidOperationException($"Expected one toggle for 0x{key:X}: {string.Join(", ", observations)}");
             }
-            File.WriteAllText(report, count == 6 ? "PASS: left/right Control, Alt and Shift each toggle once through the global hook." : $"FAIL: expected six toggles, got {count}. {string.Join(", ", observations)}");
+            File.WriteAllText(report, count == 7 ? "PASS: left/right Control, Alt, Shift and Space each toggle once through the global hook." : $"FAIL: expected seven toggles, got {count}. {string.Join(", ", observations)}");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { desktop.Toggle -= Count; Quit(); }
@@ -260,11 +314,24 @@ public partial class App : Application
         {
             panel!.Show(); await Task.Delay(300);
             if (!panel.HasNeutralFocus) throw new InvalidOperationException("Initial focus selected an action button");
+            if ((Native.GetWindowLongPtr(panel.Handle, -16).ToInt64() & 0x00C40000L) != 0
+                || Native.DwmGetWindowAttribute(panel.Handle, 33, out var corner, sizeof(int)) != 0 || corner != 1)
+                throw new InvalidOperationException("Presenter restored a native frame or small corners after activation");
+            if (panel.SystemBackdrop is not GlassBackdrop)
+                throw new InvalidOperationException("Desktop glass backdrop is missing");
             var region = Native.CreateRoundRectRgn(0, 0, 1, 1, 1, 1);
             try
             {
-                if (Native.GetWindowRgn(panel.Handle, region) == 0 || Native.PtInRegion(region, 1, 1) || !Native.PtInRegion(region, 80, 40))
-                    throw new InvalidOperationException("Rounded window region failed");
+                var size = panel.AppWindow.Size;
+                var radius = 26 * Math.Min(size.Width / 1040d, size.Height / 560d);
+                var inset = (int)(radius * .2);
+                if (Native.GetWindowRgn(panel.Handle, region) == 0
+                    || Native.PtInRegion(region, inset, inset)
+                    || Native.PtInRegion(region, size.Width - inset, inset)
+                    || Native.PtInRegion(region, inset, size.Height - inset)
+                    || Native.PtInRegion(region, size.Width - inset, size.Height - inset)
+                    || !Native.PtInRegion(region, (int)radius, 1))
+                    throw new InvalidOperationException("Large rounded window boundary failed after activation");
             }
             finally { Native.DeleteObject(region); }
             if (Native.GetForegroundWindow() != panel.Handle) throw new InvalidOperationException("Panel did not acquire focus");
@@ -278,7 +345,7 @@ public partial class App : Application
             probe.Activate(); Native.SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(probe));
             await Task.Delay(500);
             if (Native.IsWindowVisible(panel.Handle)) throw new InvalidOperationException("Focus loss did not hide panel");
-            File.WriteAllText(report, "PASS: neutral focus on initial open and reopen, rounded window region, Escape through keyboard hook, automatic hide on focus loss.");
+            File.WriteAllText(report, "PASS: neutral focus on initial open and reopen, large rounded window boundary after activation, Escape through keyboard hook, automatic hide on focus loss.");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { probe?.Close(); Quit(); }
@@ -297,12 +364,18 @@ public partial class App : Application
         Native.SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(settings));
     }
 
+    internal void OpenLicenseSettings()
+    {
+        OpenSettings();
+        settings?.ShowAbout();
+    }
+
     internal async void Quit()
     {
         if (bindingSave != null) { try { await bindingSave; } catch { } }
         desktop?.Dispose(); desktop = null;
         activationWait?.Unregister(null); activationEvent?.Dispose();
-        settings?.Close(); panel?.Close();
+        trayMenu?.Close(); settings?.Close(); panel?.Close();
         instance?.Dispose(); instance = null;
         Exit();
     }

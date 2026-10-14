@@ -133,3 +133,25 @@
 "Esc  Close" = "Esc  Close";
 
 "Could not move binding. Check that the configuration folder is writable." = "Could not move binding. Check that the configuration folder is writable.";
+
+// About and updates
+"About" = "About";
+"GitHub" = "GitHub";
+"Source code and releases." = "Source code and releases.";
+"Version" = "Version";
+"Checking…" = "Checking…";
+"Check for Updates" = "Check for Updates";
+"No public release is available." = "No public release is available.";
+"You’re up to date." = "You’re up to date.";
+"Could not check for updates. Please try again." = "Could not check for updates. Please try again.";
+"New version available: %@" = "New version available: %@";
+"View Release" = "View Release";
+
+"Keyboard Launcher" = "Keyboard Launcher";
+"Open File" = "Open File";
+"Open Folder" = "Open Folder";
+"Choose a file…" = "Choose a file…";
+"Choose a folder…" = "Choose a folder…";
+"Could not open the selected file or folder." = "Could not open the selected file or folder.";
+
+"Quit" = "Quit";

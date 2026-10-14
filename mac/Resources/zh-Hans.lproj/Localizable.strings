@@ -47,8 +47,8 @@
 "File" = "文件";
 "General" = "通用";
 "Icon auto-detected from command" = "根据命令自动识别图标";
-"Keyboard Launcher Settings" = "Keyboard Launcher 设置";
-"Keyboard Launcher needs Accessibility permission for double-tap shortcuts and system shortcut suppression.\n\nClick \"Open System Settings\" and enable Keyboard Launcher in Privacy & Security > Accessibility." = "Keyboard Launcher 需要辅助功能权限，才能使用双击快捷键和覆盖系统快捷键。\n\n点击“打开系统设置”，在“隐私与安全性 > 辅助功能”中启用 Keyboard Launcher。";
+"Keyboard Launcher Settings" = "指间 · Keyboard Launcher 设置";
+"Keyboard Launcher needs Accessibility permission for double-tap shortcuts and system shortcut suppression.\n\nClick \"Open System Settings\" and enable Keyboard Launcher in Privacy & Security > Accessibility." = "指间 · Keyboard Launcher 需要辅助功能权限，才能使用双击快捷键和覆盖系统快捷键。\n\n点击“打开系统设置”，在“隐私与安全性 > 辅助功能”中启用 指间 · Keyboard Launcher。";
 "Keyboard Shortcut" = "执行快捷键";
 "Keyboard shortcut" = "键盘快捷键";
 "Language" = "语言";
@@ -82,7 +82,7 @@
 "Press shortcut…" = "请按下快捷键…";
 "Previous page" = "上一页";
 "Prioritize the launcher over system shortcuts." = "快捷键冲突时优先唤起启动器。";
-"Quit Keyboard Launcher" = "退出 Keyboard Launcher";
+"Quit Keyboard Launcher" = "退出 指间 · Keyboard Launcher";
 "Record Double-Tap Key" = "录入双击按键";
 "Record Shortcut" = "录入快捷键";
 "Record a key combination." = "录入一个按键组合。";
@@ -106,7 +106,7 @@
 "Shapes" = "形状";
 "Shell Command" = "Shell 命令";
 "Shortcuts" = "快捷键";
-"Show Keyboard Launcher" = "显示 Keyboard Launcher";
+"Show Keyboard Launcher" = "显示 指间 · Keyboard Launcher";
 "Space" = "空格";
 "Spotlight shortcut" = "聚焦搜索快捷键";
 "Start automatically when you sign in." = "登录 Mac 时自动启动。";
@@ -133,3 +133,25 @@
 "Esc  Close" = "Esc  关闭";
 
 "Could not move binding. Check that the configuration folder is writable." = "无法移动绑定，请检查配置文件夹是否可写。";
+
+// About and updates
+"About" = "关于";
+"GitHub" = "GitHub";
+"Source code and releases." = "源代码与发布版本。";
+"Version" = "版本";
+"Checking…" = "正在检测…";
+"Check for Updates" = "检测更新";
+"No public release is available." = "暂无公开发布版本。";
+"You’re up to date." = "当前已是最新版本。";
+"Could not check for updates. Please try again." = "无法检测更新，请重试。";
+"New version available: %@" = "发现新版本：%@";
+"View Release" = "查看发布";
+
+"Keyboard Launcher" = "指间 · Keyboard Launcher";
+"Open File" = "打开文件";
+"Open Folder" = "打开文件夹";
+"Choose a file…" = "选择文件…";
+"Choose a folder…" = "选择文件夹…";
+"Could not open the selected file or folder." = "无法打开所选文件或文件夹。";
+
+"Quit" = "退出";

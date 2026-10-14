@@ -1,0 +1,12 @@
+Store captures: actual app windows, demonstration bindings, no desktop.
+zh-CN-launcher 2080 x 1120
+zh-CN-binding 1160 x 1264
+zh-CN-shortcuts 1760 x 1240
+zh-CN-system 1760 x 1240
+zh-CN-appearance 1760 x 1240
+en-launcher 2080 x 1120
+en-binding 1160 x 1264
+en-shortcuts 1760 x 1240
+en-system 1760 x 1240
+en-appearance 1760 x 1240
+PASS: ten localized captures saved.

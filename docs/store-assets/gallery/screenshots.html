@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Keyboard Launcher · Feature gallery</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:1920px;height:1080px;overflow:hidden}
+body{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;color:#f8f9fb;background:radial-gradient(ellipse at 0% 0%,#353b42 0,transparent 46%),radial-gradient(ellipse at 93% 74%,#323941 0,transparent 46%),#101214}
+header{position:absolute;left:88px;top:67px;display:flex;align-items:center;gap:18px;font-size:22px;letter-spacing:1px;color:#dde0e4}header img{width:48px;height:48px;border-radius:11px}
+.platform{position:absolute;right:88px;top:81px;font-size:16px;letter-spacing:4px;color:#9299a3}
+.copy{position:absolute;left:88px;top:276px;width:570px;z-index:3}.eyebrow{font-size:16px;letter-spacing:3px;color:#a6b0bb;font-weight:600;margin-bottom:28px}.rule{width:46px;height:2px;background:#c3cbd4;margin-bottom:30px}
+h1{font-size:66px;line-height:1.2;letter-spacing:-2.4px;white-space:pre-line;margin:0 0 35px;font-weight:650}p{font-size:25px;line-height:1.7;color:#aeb6c0;white-space:pre-line;margin:0}
+.stage{position:absolute;left:686px;right:70px;top:190px;bottom:164px;display:flex;align-items:center;justify-content:center;z-index:2}
+.capture{display:block;width:auto;max-width:100%;max-height:100%;object-fit:contain;border-radius:10px;filter:drop-shadow(0 32px 42px #0008)}
+.halo{position:absolute;left:825px;top:106px;width:1020px;height:810px;border:1px solid #c7d4e220;border-radius:50%;transform:rotate(-21deg)}.halo:after{content:"";position:absolute;inset:52px -85px;border:1px solid #c7d4e20b;border-radius:50%}
+.keys{display:flex;gap:12px;margin-top:56px}.key{height:58px;min-width:64px;padding:0 18px;display:flex;align-items:center;justify-content:center;border:1px solid #cad0d348;border-radius:12px;background:linear-gradient(145deg,#444a50,#23272c);box-shadow:0 4px 0 #070809a0,inset 0 1px 0 #ffffff20;color:#e9edf0;font-size:19px}
+footer{position:absolute;left:88px;right:88px;bottom:65px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #ffffff1a;padding-top:28px;color:#9199a3;font-size:15px;letter-spacing:2px}.count{display:flex;align-items:center;gap:24px}.dots{display:flex;gap:10px}.dot{height:4px;width:20px;background:#42474e;border-radius:4px}.dot.active{background:#e6eaef;width:42px}
+body.settings .copy{left:64px;top:275px;width:510px}body.settings h1{font-size:58px}body.settings p{font-size:23px}body.settings .stage{left:604px;right:36px;top:130px;bottom:78px}body.settings footer{bottom:28px;padding-top:14px}body.settings header{left:64px;top:42px}body.settings .platform{top:56px}
+</style></head><body>
+<header><img src="../../../windows/KeyboardLauncher/Assets/AppIcon.png"><span id="brand"></span></header><div class="platform">WINDOWS</div><div class="halo"></div>
+<section class="copy"><div class="eyebrow" id="eyebrow"></div><div class="rule"></div><h1 id="title"></h1><p id="subtitle"></p><div class="keys" id="keys"></div></section>
+<main class="stage"><img class="capture" id="capture" alt="Actual Windows application screenshot"></main>
+<footer><span id="foot"></span><div class="count"><span id="number"></span><div class="dots" id="dots"></div></div></footer>
+<script>
+(async()=>{const q=new URLSearchParams(location.search),lang=q.get('lang')==='en-US'?'en-US':'zh-CN',n=Math.max(0,Math.min(4,Number(q.get('n'))||0)),data=await(await fetch('captions.json')).json(),c=data[lang][n];document.documentElement.lang=lang;if(n>=2)document.body.classList.add('settings');for(const k of ['eyebrow','title','subtitle'])document.getElementById(k).textContent=c[k];document.getElementById('brand').textContent=lang==='zh-CN'?'指间 · Keyboard Launcher':'Keyboard Launcher';document.getElementById('foot').textContent=lang==='zh-CN'?'真实 Windows 界面 · 按你的习惯安排':'REAL WINDOWS APP · BUILT AROUND YOUR WORKFLOW';document.getElementById('number').textContent=`0${n+1} / 05`;document.getElementById('dots').innerHTML=Array.from({length:5},(_,i)=>`<i class="dot ${i===n?'active':''}"></i>`).join('');const keys=[['Ctrl','Shift','Space'],['Q','W','E'],['Ctrl','Ctrl'],lang==='zh-CN'?['浅色','深色']:['Light','Dark'],['{ }','→']][n];document.getElementById('keys').innerHTML=keys.map(x=>`<span class="key">${x}</span>`).join('');if(n===0)document.getElementById('capture').style.borderRadius='30px';document.getElementById('capture').src=`../screenshots/${lang==='en-US'?'en':'zh-CN'}-${c.id}.png`;})();
+</script></body></html>

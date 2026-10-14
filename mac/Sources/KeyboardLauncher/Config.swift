@@ -228,4 +228,6 @@ struct ConfigLauncher: Codable {
     let exec: String
     let icon: String?
     var keyboardShortcut: String? = nil
+    var actionType: String? = nil
+    var targetPath: String? = nil
 }

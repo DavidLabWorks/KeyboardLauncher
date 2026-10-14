@@ -4,6 +4,21 @@ import Cocoa
 
 struct BindingAndDoubleTapCheck {
     static func main() throws {
+        for (action, kind) in [(ActionType.openFile, "file"), (.openFolder, "folder")] {
+            let path = "/tmp/中文 folder/O'Brien $(touch SHOULD_NOT_RUN).txt"
+            var draft = EditableLauncher(name: "Path action")
+            draft.actionType = action
+            assert(draft.toConfig().exec.isEmpty)
+            if action == .openFile { draft.filePath = path } else { draft.folderPath = path }
+            let saved = try JSONDecoder().decode(ConfigLauncher.self, from: JSONEncoder().encode(draft.toConfig()))
+            assert(saved.actionType == kind && saved.targetPath == path)
+            let restored = EditableLauncher.from(saved)
+            assert(restored.actionType == action)
+            assert(action == .openFile ? restored.filePath == path : restored.folderPath == path)
+            assert(saved.exec == "open -- '/tmp/中文 folder/O'\"'\"'Brien $(touch SHOULD_NOT_RUN).txt'")
+        }
+        let legacyApp = try JSONDecoder().decode(ConfigLauncher.self, from: Data(#"{"name":"App","exec":"open -a 'Safari'"}"#.utf8))
+        assert(legacyApp.targetPath == nil && EditableLauncher.from(legacyApp).actionType == .openApp)
         let frames = [0: CGRect(x: 0, y: 0, width: 70, height: 90),
                       1: CGRect(x: 80, y: 0, width: 70, height: 90)]
         assert(ContentView.dropSlot(at: CGPoint(x: 100, y: 35), frames: frames) == 1)

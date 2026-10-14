@@ -77,7 +77,7 @@ public sealed class DoubleModifierTap
     public void Reset() { pressedAt = releasedAt = null; pressedKey = 0; }
     public bool Handle(uint key, bool down, long time, bool repeat, bool otherModifiers)
     {
-        bool selected = modifier switch { "control" => key is 0xA2 or 0xA3, "alt" => key is 0xA4 or 0xA5, "shift" => key is 0xA0 or 0xA1, "leftControl" => key == 0xA2, "rightControl" => key == 0xA3, "leftAlt" => key == 0xA4, "rightAlt" => key == 0xA5, "leftShift" => key == 0xA0, "rightShift" => key == 0xA1, _ => false };
+        bool selected = modifier switch { "control" => key is 0xA2 or 0xA3, "alt" => key is 0xA4 or 0xA5, "shift" => key is 0xA0 or 0xA1, "leftControl" => key == 0xA2, "rightControl" => key == 0xA3, "leftAlt" => key == 0xA4, "rightAlt" => key == 0xA5, "leftShift" => key == 0xA0, "rightShift" => key == 0xA1, "space" => key == 0x20, _ => false };
         if (!selected || repeat || otherModifiers) { Reset(); return false; }
         if (down)
         {

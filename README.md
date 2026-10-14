@@ -2,7 +2,9 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-A keyboard-shaped launcher for apps, URLs, shell commands, and keyboard shortcuts. Bring up the panel, then press a bound key or click its icon to run an action.
+A keyboard-shaped launcher for apps, files, folders, URLs, shell commands, and keyboard shortcuts. Bring up the panel, then press a bound key or click its icon to run an action.
+
+macOS and Windows offer separate Open App, Open File, and Open Folder action cards and pickers. Files open in their default application, while folders open in Finder or File Explorer. Saved bindings retain their action type when edited.
 
 ## Interface preview
 
@@ -125,7 +127,7 @@ Prefer the editor for routine changes. If editing JSON manually, back up the fil
 
 `keyIndex` is zero-based across pages. The example assigns the first two keys, `1` and `2`. The shortcut action invokes whatever that combination is configured to do on your Mac; it does not install a screenshot tool. An empty `shortcut` disables combination activation; omit `doubleTapKey` or set it to `null` to disable double-tap activation.
 
-There is no cloud sync or automatic update mechanism. macOS and Windows commands, application paths, icons, and system settings are platform-specific; similar JSON fields do not make configurations directly portable.
+There is no cloud sync. The macOS app checks GitHub Releases; the Windows Store edition uses Microsoft Store updates. macOS and Windows commands, application paths, icons, and system settings are platform-specific; similar JSON fields do not make configurations directly portable.
 
 ## Checks and source layout
 

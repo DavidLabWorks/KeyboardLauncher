@@ -26,8 +26,8 @@ internal sealed partial class PanelWindow : Window
     internal bool HasNeutralFocus => ReferenceEquals(FocusManager.GetFocusedElement(root.XamlRoot), focusHost);
     private readonly Button previous, next;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer focusCheck;
-    private readonly PanelShadow shadow;
     private readonly GlassBackdrop backdrop = new();
+    private readonly Border surface = new() { CornerRadius = new CornerRadius(26) };
     private nint previousWindow;
     private bool visible, editing, launching, dragging;
     private UIElement? dragSurface;
@@ -44,31 +44,21 @@ internal sealed partial class PanelWindow : Window
     {
         this.app = app; Title = App.DisplayName;
         Handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        shadow = new PanelShadow(Handle);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         SystemBackdrop = backdrop;
-        // Use the mac radius explicitly; DWM's fixed rounded preset is only ~8px.
         var corner = 1; Native.DwmSetWindowAttribute(Handle, 33, ref corner, sizeof(int));
         var borderColor = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE
         Native.DwmSetWindowAttribute(Handle, 34, ref borderColor, sizeof(int));
         focusCheck = DispatcherQueue.CreateTimer();
         focusCheck.Interval = TimeSpan.FromMilliseconds(100);
         focusCheck.Tick += (_, _) => CheckForeground();
-        Closed += (_, _) => { focusCheck.Stop(); shadow.Dispose(); };
-        AppWindow.Changed += (_, e) =>
-        {
-            if (e.DidSizeChange) UpdateWindowShape();
-            if (visible && (e.DidPositionChange || e.DidSizeChange)) UpdateShadow();
-        };
+        Closed += (_, _) => focusCheck.Stop();
+        AppWindow.Changed += (_, e) => { if (e.DidSizeChange && visible) UpdateWindowShape(); };
         AppWindow.IsShownInSwitchers = false;
         var presenter = (OverlappedPresenter)AppWindow.Presenter;
         presenter.SetBorderAndTitleBar(false, false); presenter.IsAlwaysOnTop = true;
         presenter.IsResizable = false; presenter.IsMaximizable = false; presenter.IsMinimizable = false;
-        // Disable non-client frame rendering as well as the presenter border.
-        Native.SetWindowLongPtr(Handle, -16, (nint)(Native.GetWindowLongPtr(Handle, -16).ToInt64() & ~0x00C40000L));
-        Native.SetWindowLongPtr(Handle, -20, (nint)(Native.GetWindowLongPtr(Handle, -20).ToInt64() & ~0x00020300L));
-        Native.SetWindowPos(Handle, 0, 0, 0, 0, 0, 0x37); // FRAMECHANGED, no move/size/z-order/activation
-        var nonClientPolicy = 1; // DWMNCRP_DISABLED
+        var nonClientPolicy = 1; // DWMNCRP_DISABLED: no separate system frame/shadow.
         Native.DwmSetWindowAttribute(Handle, 2, ref nonClientPolicy, sizeof(int));
         root.RowDefinitions.Add(new() { Height = new GridLength(76) });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
@@ -118,15 +108,17 @@ internal sealed partial class PanelWindow : Window
         root.Width = 1040; root.Height = 560;
         root.Children.Insert(0, focusHost);
         focusHost.Loaded += (_, _) => { if (visible) focusHost.Focus(FocusState.Programmatic); };
-        Content = new Viewbox { Child = new Border { Child = root, CornerRadius = new CornerRadius(26) }, Stretch = Stretch.Uniform };
+        surface.Child = root;
+        Content = new Viewbox { Child = surface, Stretch = Stretch.Uniform };
         // Do not rebuild the visual tree from ActualThemeChanged: WinUI is traversing
         // that tree during theme propagation. Each existing control updates its brushes.
-        root.ActualThemeChanged += (_, _) => backdrop.ApplyTheme(root.ActualTheme);
+        root.ActualThemeChanged += (_, _) => PaintSurface();
         root.PreviewKeyDown += HandleKey;
         Activated += (_, e) => { if (e.WindowActivationState == WindowActivationState.Deactivated) DispatcherQueue.TryEnqueue(CheckForeground); };
         refreshLanguage = () =>
         {
             root.Language = app.Config.Language;
+            ((TextBlock)title.Children[1]).Text = App.DisplayName;
             footerHint.Text = L.T("⌨  点击空键绑定 · 右键编辑 · 按键或点击启动");
             closeHint.Text = L.T("Esc  关闭");
             ToolTipService.SetToolTip(settings, L.T("设置"));
@@ -138,13 +130,16 @@ internal sealed partial class PanelWindow : Window
         Refresh();
     }
 
+    private void PaintSurface() => backdrop.ApplyTheme(root.ActualTheme);
+
     internal void Refresh()
     {
+        Title = App.DisplayName;
         refreshLanguage();
         var theme = Ui.Theme(app.Config.Theme);
         if (((FrameworkElement)Content).RequestedTheme != theme)
             ((FrameworkElement)Content).RequestedTheme = theme;
-        if (renderedPage < 0) backdrop.ApplyTheme(root.ActualTheme);
+        if (renderedPage < 0) PaintSurface();
         page = Math.Min(page, app.Config.PageCount);
         bool languageChanged = renderedLanguage != app.Config.Language;
         if (renderedPage != page)
@@ -239,6 +234,7 @@ internal sealed partial class PanelWindow : Window
     public void Toggle() { if (editing || launching) return; if (visible) Hide(true); else Show(); }
     public void Show()
     {
+        if (!app.Licensing.CanUse) { app.OpenLicenseSettings(); return; }
         if (visible) return;
         var foreground = Native.GetForegroundWindow();
         Native.GetWindowThreadProcessId(foreground, out var pid);
@@ -249,34 +245,39 @@ internal sealed partial class PanelWindow : Window
         var scale = Math.Min(dpi, Math.Min((info.Work.Right - info.Work.Left - 32) / 1040d, (info.Work.Bottom - info.Work.Top - 32) / 560d));
         var width = (int)(1040 * scale); var height = (int)(560 * scale);
         AppWindow.MoveAndResize(new RectInt32(info.Work.Left + (info.Work.Right - info.Work.Left - width) / 2, info.Work.Top + (info.Work.Bottom - info.Work.Top - height) / 2, width, height));
-        UpdateWindowShape();
         visible = true;
         AppWindow.Show(); Activate(); Native.ActivatePanel(Handle); focusHost.Focus(FocusState.Programmatic);
+        UpdateWindowShape();
         // Activation can restore the old XAML focus after Show returns.
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
             if (visible && !editing && Native.GetForegroundWindow() == Handle)
                 focusHost.Focus(FocusState.Programmatic);
         });
-        UpdateShadow();
         focusCheck.Start();
     }
 
     private void UpdateWindowShape()
     {
+        // WinUI's presenter restores frame styles on Show. Remove them only after
+        // activation, before clipping, or its small frame leaks around our surface.
+        var style = Native.GetWindowLongPtr(Handle, -16).ToInt64();
+        var borderless = style & ~0x00C40000L; // WS_CAPTION | WS_THICKFRAME
+        if (style != borderless)
+        {
+            Native.SetWindowLongPtr(Handle, -16, (nint)borderless);
+            Native.SetWindowPos(Handle, 0, 0, 0, 0, 0, 0x37); // FRAMECHANGED, preserve bounds/focus
+        }
+        var corner = 1; // DWMWCP_DONOTROUND: our region supplies the large curve.
+        Native.DwmSetWindowAttribute(Handle, 33, ref corner, sizeof(int));
+        var nonClientPolicy = 1;
+        Native.DwmSetWindowAttribute(Handle, 2, ref nonClientPolicy, sizeof(int));
         var size = AppWindow.Size;
-        if (size.Width <= 0 || size.Height <= 0) return;
         var scale = Math.Min(size.Width / 1040d, size.Height / 560d);
-        backdrop.Resize(size.Width, size.Height, (float)(26 * scale));
-        // Leave a two-pixel allowance outside the alpha edge; HRGN is for hit testing.
-        var diameter = Math.Max(2, (int)Math.Round(52 * scale) - 4);
+        var diameter = Math.Max(2, (int)Math.Round(52 * scale));
         var region = Native.CreateRoundRectRgn(0, 0, size.Width + 1, size.Height + 1, diameter, diameter);
-        if (region == 0) return;
-        // Windows owns the region after a successful SetWindowRgn call.
-        if (Native.SetWindowRgn(Handle, region, true) == 0) Native.DeleteObject(region);
+        if (region != 0 && Native.SetWindowRgn(Handle, region, true) == 0) Native.DeleteObject(region);
     }
-
-    private void UpdateShadow() => shadow.Show(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
 
     private void CheckForeground()
     {
@@ -298,7 +299,6 @@ internal sealed partial class PanelWindow : Window
         CancelBindingDrag();
         StopDragging();
         focusCheck.Stop();
-        shadow.Hide();
         visible = false; AppWindow.Hide();
         if (restore && Native.IsWindow(previousWindow)) Native.SetForegroundWindow(previousWindow);
     }
@@ -347,6 +347,7 @@ internal sealed partial class PanelWindow : Window
 
     private async Task Launch(Launcher launcher)
     {
+        if (!app.Licensing.CanUse) { app.OpenLicenseSettings(); return; }
         if (launching) return;
         launching = true;
         bool sendsShortcut = !string.IsNullOrWhiteSpace(launcher.KeyboardShortcut);

@@ -29,6 +29,7 @@ internal static class BindingEditor
         private readonly Grid root = new();
         private readonly TextBox name = new() { FontSize = 19, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Padding = new Thickness(12, 7, 12, 7) };
         private readonly TextBox application = new(), url = new(), command = new(), arguments = new(), shortcut = new();
+        private readonly TextBox filePath = new(), folderPath = new();
         private readonly TextBox icon = new() { PlaceholderText = L.T("输入符号、emoji 或图片路径"), Width = 280 };
         private readonly Grid preview = new() { Width = 60, Height = 60 };
         private readonly Grid appPreview = new() { Width = 36, Height = 36 };
@@ -48,7 +49,9 @@ internal static class BindingEditor
         {
             this.app = app; this.slot = slot; root.Language = app.Config.Language;
             var existing = app.Config.At(slot);
-            selected = existing?.KeyboardShortcut != null ? 3 : existing?.ActionType switch { "url" => 1, "command" or "script" => 2, _ => 0 };
+            selected = existing?.KeyboardShortcut != null ? 3 : existing?.ActionType switch { "url" => 1, "command" or "script" => 2, "file" => 4, "folder" => 5, _ => 0 };
+            filePath.Text = selected == 4 ? existing?.Exec ?? "" : "";
+            folderPath.Text = selected == 5 ? existing?.Exec ?? "" : "";
             name.Text = existing?.Name ?? L.T("新建项目");
             application.Text = selected == 0 ? existing?.Exec ?? "" : "";
             url.Text = selected == 1 ? existing?.Exec ?? "" : "";
@@ -97,17 +100,19 @@ internal static class BindingEditor
             var actionSection = new StackPanel { Spacing = 10 };
             var actionLabel = Label(L.T("动作")); actionLabel.Margin = new Thickness(6, 0, 0, 0); actionSection.Children.Add(actionLabel);
             var action = new StackPanel { Spacing = 18 };
-            var segmentRow = new Grid();
-            for (int column = 0; column < 4; column++) segmentRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            var segmentRow = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
+            for (int column = 0; column < 3; column++) segmentRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            segmentRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
+            segmentRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
             var segmentBackground = new Border { Child = segmentRow, Padding = new Thickness(3), CornerRadius = new CornerRadius(9), HorizontalAlignment = HorizontalAlignment.Stretch };
-            paints.Add(() => segmentBackground.Background = Brush(Dark ? 56 : 235));
-            var titles = new[] { L.T("打开应用"), L.T("打开网址"), L.T("Shell 命令"), L.T("执行快捷键") };
+            var titles = new[] { L.T("打开应用"), L.T("打开网址"), L.T("Shell 命令"), L.T("执行快捷键"), L.T("打开文件"), L.T("打开文件夹") };
             for (int i = 0; i < titles.Length; i++)
             {
                 int index = i;
                 var button = new PointerButton { Content = titles[i], FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium, Height = 36, MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, Padding = new Thickness(8, 0, 8, 0), BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(7) };
                 button.Click += (_, _) => { selected = index; UpdateFields(); };
-                segments.Add(button); Grid.SetColumn(button, i); segmentRow.Children.Add(button);
+                var position = new[] { 0, 3, 4, 5, 1, 2 }[i];
+                segments.Add(button); Grid.SetColumn(button, position % 3); Grid.SetRow(button, position / 3); segmentRow.Children.Add(button);
             }
             action.Children.Add(segmentBackground);
             var separator = new Border { Height = 1 };
@@ -129,7 +134,7 @@ internal static class BindingEditor
             buttons.Children.Add(cancel); buttons.Children.Add(save); footer.Children.Add(buttons); Grid.SetRow(footer, 1); root.Children.Add(footer);
             ShortcutRecorder.Attach(app, shortcut, this, false);
             BuildAppPicker();
-            foreach (var field in new[] { name, application, url, command, arguments, shortcut, icon })
+            foreach (var field in new[] { name, application, url, command, arguments, shortcut, icon, filePath, folderPath })
                 field.TextChanged += (_, _) => { UpdatePreview(); Validate(); };
             root.RequestedTheme = Ui.Theme(app.Config.Theme);
             Content = root; root.ActualThemeChanged += (_, _) => Paint(); root.Loaded += (_, _) => Paint();
@@ -164,7 +169,7 @@ internal static class BindingEditor
         {
             for (int i = 0; i < segments.Count; i++)
             {
-                segments[i].Background = i == selected ? Brush(48, 112, 244) : new SolidColorBrush(Colors.Transparent);
+                segments[i].Background = i == selected ? Brush(48, 112, 244) : Brush(Dark ? 56 : 245);
                 segments[i].Foreground = i == selected || Dark ? Brush(255) : Brush(35);
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(segments[i], $"{segments[i].Content}{(i == selected ? L.T("，已选择") : "")}");
             }
@@ -187,6 +192,8 @@ internal static class BindingEditor
                 case 0: fields.Children.Add(chooseApp); fields.Children.Add(Field(L.T("参数   可选"), arguments, L.T("例如 C:\\Projects\\my-app"))); break;
                 case 1: fields.Children.Add(Field(L.T("网址"), url, "https://example.com")); break;
                 case 2: fields.Children.Add(BuildScriptPicker()); break;
+                case 4: fields.Children.Add(BuildPathPicker(false)); break;
+                case 5: fields.Children.Add(BuildPathPicker(true)); break;
                 case 3:
                     fields.Children.Add(Field(L.T("快捷键"), shortcut, L.T("点击后按下快捷键")));
                     fields.Children.Add(new TextBlock { Text = L.T("返回之前的应用，然后执行快捷键。支持全局快捷键。"), FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap });
@@ -194,8 +201,8 @@ internal static class BindingEditor
             }
             PaintSegments(); UpdatePreview(); Validate();
         }
-        private Launcher Draft() => new() { Name = name.Text.Trim(), Exec = selected switch { 0 => application.Text.Trim(), 1 => url.Text.Trim(), 2 => command.Text.Trim(), _ => "" },
-            ActionType = selected switch { 1 => "url", 2 => scriptFile ? "script" : "command", _ => "application" }, Arguments = selected == 0 ? arguments.Text : "",
+        private Launcher Draft() => new() { Name = name.Text.Trim(), Exec = selected switch { 0 => application.Text.Trim(), 1 => url.Text.Trim(), 2 => command.Text.Trim(), 4 => filePath.Text, 5 => folderPath.Text, _ => "" },
+            ActionType = selected switch { 1 => "url", 2 => scriptFile ? "script" : "command", 4 => "file", 5 => "folder", _ => "application" }, Arguments = selected == 0 ? arguments.Text : "",
             KeyboardShortcut = selected == 3 ? shortcut.Text.Trim() : null, Icon = string.IsNullOrWhiteSpace(icon.Text) ? null : icon.Text.Trim() };
         private void Validate()
         {
@@ -226,6 +233,45 @@ internal static class BindingEditor
                 : Ui.KeyIcon(new Launcher { Exec = application.Text }, 48));
             hint.Text = string.IsNullOrWhiteSpace(icon.Text) ? L.T("根据命令自动识别图标") : L.T("使用自定义图标");
         }
+        private StackPanel BuildPathPicker(bool folder)
+        {
+            var target = folder ? folderPath : filePath;
+            var panel = new StackPanel { Spacing = 10 };
+            var title = L.T(folder ? "选择文件夹…" : "选择文件…");
+            var text = new StackPanel { Spacing = 5 };
+            var displayName = Path.GetFileName(Path.TrimEndingDirectorySeparator(target.Text));
+            text.Children.Add(new TextBlock { Text = string.IsNullOrEmpty(target.Text) ? title : string.IsNullOrEmpty(displayName) ? target.Text : displayName, FontSize = 14, TextWrapping = TextWrapping.Wrap });
+            text.Children.Add(new TextBlock { Text = target.Text, FontSize = 11, Opacity = .65, TextWrapping = TextWrapping.Wrap, MaxLines = 2 });
+            var button = new PointerButton { Content = text, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(12), CornerRadius = new CornerRadius(10) };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, title);
+            button.Click += async (_, _) =>
+            {
+                try
+                {
+                    string? path;
+                    if (folder)
+                    {
+                        var picker = new FolderPicker();
+                        WinRT.Interop.InitializeWithWindow.Initialize(picker, handle);
+                        picker.FileTypeFilter.Add("*");
+                        path = (await picker.PickSingleFolderAsync())?.Path;
+                    }
+                    else path = (await Pick("*"))?.Path;
+                    if (path == null) return;
+                    target.Text = path;
+                    if (string.IsNullOrWhiteSpace(name.Text) || name.Text == L.T("新建项目"))
+                    {
+                        var chosenName = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+                        name.Text = string.IsNullOrEmpty(chosenName) ? path : chosenName;
+                    }
+                    UpdateFields();
+                }
+                catch (Exception ex) { error.Text = ex.Message; error.Visibility = Visibility.Visible; }
+            };
+            panel.Children.Add(button);
+            return panel;
+        }
+
         private StackPanel BuildScriptPicker()
         {
             var panel = new StackPanel { Spacing = 10 };
@@ -305,9 +351,9 @@ internal static class BindingEditor
                     </StackPanel>
                 </DataTemplate>
                 """);
-            var browse = new PointerButton { Content = L.T("浏览应用或文件…") };
+            var browse = new PointerButton { Content = L.T("浏览应用…") };
             var pickerPanel = new StackPanel { Spacing = 12 };
-            pickerPanel.Children.Add(search); pickerPanel.Children.Add(results); pickerPanel.Children.Add(Field(L.T("应用、文件或文件夹路径"), application, L.T("例如 notepad.exe"))); pickerPanel.Children.Add(browse);
+            pickerPanel.Children.Add(search); pickerPanel.Children.Add(results); pickerPanel.Children.Add(Field(L.T("应用路径"), application, L.T("例如 notepad.exe"))); pickerPanel.Children.Add(browse);
             var flyout = new Flyout { Content = pickerPanel };
             flyout.FlyoutPresenterStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
                 <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="FlyoutPresenter">
@@ -326,7 +372,7 @@ internal static class BindingEditor
             {
                 try
                 {
-                    var file = await Pick("*");
+                    var file = await Pick(".exe", ".lnk", ".appref-ms");
                     if (file != null) { Choose(file.Path, Path.GetFileNameWithoutExtension(file.Name)); flyout.Hide(); }
                 }
                 catch (Exception ex) { error.Text = ex.Message; error.Visibility = Visibility.Visible; }

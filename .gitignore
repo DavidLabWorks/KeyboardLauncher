@@ -15,3 +15,7 @@ CLAUDE.md
 **/obj/
 **/artifacts/
 release/
+
+# Partner Center identity and MSIX output
+windows/store/identity.json
+**/AppPackages/

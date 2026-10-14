@@ -8,6 +8,8 @@ internal static class ActionRunner
 {
     public static async Task Run(Launcher launcher, nint previousWindow, Func<bool>? hasPressedKeys = null, Action? releasePanel = null)
     {
+        if (!((App)Microsoft.UI.Xaml.Application.Current).Licensing.CanUse)
+            throw new InvalidOperationException(L.T("试用已结束或尚未取得授权，请购买完整版或恢复购买。"));
         if (!string.IsNullOrWhiteSpace(launcher.KeyboardShortcut))
         {
             var hotkey = Hotkey.Parse(launcher.KeyboardShortcut, false);
@@ -48,6 +50,14 @@ internal static class ActionRunner
             var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd.exe") { UseShellExecute = false };
             start.Arguments = "/d /s /c \"" + launcher.Exec + "\"";
             Process.Start(start)?.Dispose();
+        }
+        else if (launcher.ActionType is "file" or "folder")
+        {
+            var path = Environment.ExpandEnvironmentVariables(launcher.Exec);
+            if (launcher.ActionType == "folder" ? !Directory.Exists(path) : !File.Exists(path))
+                throw new FileNotFoundException(L.T("文件或文件夹不存在，请重新选择。"), path);
+            releasePanel?.Invoke();
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true })?.Dispose();
         }
         else await ApplicationActivation.Open(launcher, releasePanel);
     }

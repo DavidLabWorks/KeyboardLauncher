@@ -192,7 +192,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             icon?.size = NSSize(width: 20, height: 20)
             button.image = icon
             button.imagePosition = .imageOnly
-            button.setAccessibilityLabel("Keyboard Launcher")
+            button.setAccessibilityLabel(L("Keyboard Launcher"))
         }
 
         let menu = NSMenu()
@@ -328,8 +328,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 slot: configItem.keyIndex ?? index,
                 name: configItem.name,
                 exec: configItem.exec,
-                icon: IconResolver.resolve(icon: configItem.icon ?? (configItem.keyboardShortcut == nil ? nil : "sf:keyboard"), exec: configItem.exec),
-                keyboardShortcut: configItem.keyboardShortcut
+                icon: EditableLauncher.from(configItem).resolvedIcon(),
+                keyboardShortcut: configItem.keyboardShortcut,
+                targetPath: configItem.actionType == "file" || configItem.actionType == "folder" ? configItem.targetPath : nil
             )
         }
         state.keyboardPage = min(state.keyboardPage, state.pageCount - 1)
@@ -439,6 +440,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hidePanel()
         if let shortcut = item.keyboardShortcut {
             KeyboardShortcutAction.send(shortcut, to: target)
+            return
+        }
+        if let path = item.targetPath {
+            let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            if !NSWorkspace.shared.open(url) {
+                let alert = NSAlert()
+                alert.messageText = L("Could not open the selected file or folder.")
+                alert.informativeText = path
+                alert.runModal()
+            }
             return
         }
         let home = NSHomeDirectory()

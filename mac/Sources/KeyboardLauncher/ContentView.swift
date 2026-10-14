@@ -60,6 +60,7 @@ struct LaunchpickItem: Identifiable {
     let exec: String
     let icon: NSImage
     var keyboardShortcut: String? = nil
+    var targetPath: String? = nil
 }
 
 struct ContentView: View {
@@ -78,7 +79,7 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     Image(nsImage: IconResolver.appIcon)
                         .resizable().scaledToFit().frame(width: 34, height: 34)
-                    Text(verbatim: Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Keyboard Launcher").font(.system(size: 15, weight: .semibold))
+                    Text(verbatim: L("Keyboard Launcher")).font(.system(size: 15, weight: .semibold))
                     Spacer()
                 }
                 .frame(maxHeight: .infinity)

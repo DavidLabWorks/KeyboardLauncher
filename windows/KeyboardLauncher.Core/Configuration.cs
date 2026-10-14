@@ -51,7 +51,7 @@ public sealed record LauncherConfig
     public void Validate()
     {
         if (!string.IsNullOrWhiteSpace(Shortcut)) _ = Hotkey.Parse(Shortcut);
-        if (DoubleTapKey is not (null or "" or "control" or "alt" or "shift" or "leftControl" or "rightControl" or "leftAlt" or "rightAlt" or "leftShift" or "rightShift")) throw new FormatException(L.T("请选择有效的左侧或右侧双击按键。"));
+        if (DoubleTapKey is not (null or "" or "control" or "alt" or "shift" or "leftControl" or "rightControl" or "leftAlt" or "rightAlt" or "leftShift" or "rightShift" or "space")) throw new FormatException(L.T("请选择 Ctrl、Alt、Shift 或 Space 作为双击按键。"));
         if (Language is not ("en" or "zh-CN")) throw new FormatException(L.T("未知语言。"));
         if (Theme is not ("system" or "light" or "dark")) throw new FormatException(L.T("未知主题。"));
         if (Launchers is null || Launchers.Count > 3800) throw new FormatException(L.T("绑定数量超出限制。"));
@@ -68,7 +68,7 @@ public sealed record LauncherConfig
                 if (string.IsNullOrWhiteSpace(item.Exec)) throw new FormatException(L.T("请输入启动目标或命令。"));
                 if (item.Exec.StartsWith("open ", StringComparison.Ordinal) || item.Exec.Contains(".app/", StringComparison.Ordinal) || item.Exec.EndsWith(".app", StringComparison.Ordinal))
                     throw new FormatException(L.T("macOS 启动命令不能在 Windows 运行，请重新选择 Windows 应用。"));
-                if (item.ActionType is not ("application" or "url" or "command" or "script")) throw new FormatException(L.T("未知动作类型。"));
+                if (item.ActionType is not ("application" or "file" or "folder" or "url" or "command" or "script")) throw new FormatException(L.T("未知动作类型。"));
                 if (item.ActionType == "script" && !ScriptAction.IsSupported(item.Exec)) throw new FormatException(L.T("请选择 .cmd、.bat 或 .ps1 脚本文件。"));
                 if (item.ActionType == "url" && (!Uri.TryCreate(item.Exec, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http")))
                     throw new FormatException(L.T("网址必须以 http:// 或 https:// 开头。"));

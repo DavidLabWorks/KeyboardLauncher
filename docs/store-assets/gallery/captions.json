@@ -1,0 +1,16 @@
+{
+  "zh-CN": [
+    {"id":"launcher","eyebrow":"01 / 一键启动","title":"常用操作，\n就在指间。","subtitle":"呼出键盘面板，按下对应键位，\n打开应用、文件或网址。","caption":"键盘启动器：按对应键位或点击图标，打开绑定的应用、文件、文件夹或网址。"},
+    {"id":"binding","eyebrow":"02 / 自由绑定","title":"每一个键位，\n都有你的安排。","subtitle":"为应用、网址、脚本和快捷键\n安排顺手的位置。","caption":"绑定编辑器：为键位设置应用、文件、网址、脚本或快捷键，并自定义名称和图标。"},
+    {"id":"shortcuts","eyebrow":"03 / 快速呼出","title":"熟悉的按键，\n顺手的节奏。","subtitle":"自定义组合快捷键，\n或双击修饰键呼出面板。","caption":"快捷键设置：自定义组合键或双击修饰键，显示与隐藏启动面板。"},
+    {"id":"appearance","eyebrow":"04 / 随心外观","title":"明暗之间，\n自在切换。","subtitle":"浅色、深色或跟随系统。\n中文与英文，即刻切换。","caption":"常规设置：切换简体中文或英文界面，选择浅色、深色或跟随系统主题。"},
+    {"id":"system","eyebrow":"05 / 本地掌控","title":"你的习惯，\n留在你的电脑。","subtitle":"键位配置保存在本机，\n每次更改保留上一版本。","caption":"系统设置：管理快捷键冲突，并打开本机配置文件所在文件夹。"}
+  ],
+  "en-US": [
+    {"id":"launcher","eyebrow":"01 / LAUNCH","title":"Your everyday.\nOne key away.","subtitle":"Open the keyboard panel. Press a key.\nLaunch your apps, files and websites.","caption":"Keyboard launcher: press a mapped key or click an icon to open an app, file, folder or website."},
+    {"id":"binding","eyebrow":"02 / MAKE IT YOURS","title":"A place for\nevery action.","subtitle":"Map apps, websites, scripts and shortcuts\nto keys that make sense to you.","caption":"Binding editor: assign apps, files, websites, scripts or shortcuts to a key, with a custom name and icon."},
+    {"id":"shortcuts","eyebrow":"03 / CALL IT UP","title":"Your keys.\nYour rhythm.","subtitle":"Choose a keyboard shortcut,\nor double-tap a modifier key.","caption":"Shortcut settings: choose a key combination or double-tap modifier to show and hide the launcher."},
+    {"id":"appearance","eyebrow":"04 / APPEARANCE","title":"Light or dark.\nAlways yours.","subtitle":"Choose a theme or follow your system.\nSwitch between English and Chinese.","caption":"General settings: switch between English and Simplified Chinese, and choose light, dark or system appearance."},
+    {"id":"system","eyebrow":"05 / LOCAL CONTROL","title":"Your workflow.\nOn your computer.","subtitle":"Bindings stay on your device.\nThe previous configuration is kept after changes.","caption":"System settings: manage shortcut conflicts and open the folder containing your local configuration."}
+  ]
+}
