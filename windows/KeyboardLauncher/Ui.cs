@@ -91,6 +91,10 @@ internal static class Ui
         button.ActualThemeChanged += (_, _) => Paint(); Paint();
         return button;
     }
+    internal static TextBlock ValidationText() => (TextBlock)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+        <TextBlock xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                   Foreground="{ThemeResource SystemFillColorCriticalBrush}" FontSize="13" TextWrapping="Wrap" Visibility="Collapsed" />
+        """);
     internal static ElementTheme Theme(string theme) => theme switch { "light" => ElementTheme.Light, "dark" => ElementTheme.Dark, _ => ElementTheme.Default };
     internal static FrameworkElement KeyIcon(Launcher item, double keyWidth)
     {

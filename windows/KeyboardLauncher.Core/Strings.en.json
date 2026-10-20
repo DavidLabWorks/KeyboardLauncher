@@ -188,5 +188,9 @@
   "请先录入要执行的快捷键。": "Record the shortcut to execute first.",
   "双击检测规则": "Double-tap detection rules",
   "撤销": "Undo",
-  "已移除 {0}": "Removed {0}"
+  "已移除 {0}": "Removed {0}",
+  "运行脚本": "Run script",
+  "查看新版本": "View releases",
+  "前往 GitHub 查看发布版本。": "View published releases on GitHub.",
+  "本地安装版本 · 从 GitHub 获取更新": "Local installation · Updates from GitHub"
 }

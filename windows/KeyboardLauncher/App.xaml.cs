@@ -374,9 +374,18 @@ public partial class App : Application
             panel!.Refresh(); panel.Show(); await Task.Delay(200);
             if (!panel.HasNeutralFocus) throw new InvalidOperationException("Reopened panel retained button focus");
             var before = panel.KeyVisualsForSmokeTest();
+            var firstKey = (Microsoft.UI.Xaml.Controls.Button)before[1];
+            var firstMenu = (Microsoft.UI.Xaml.Controls.MenuFlyout)firstKey.ContextFlyout;
+            if (firstMenu.Items.Count != 2 || firstMenu.Items[1].Visibility != Visibility.Visible)
+                throw new Exception("Bound key is missing its context-menu removal action");
+            firstKey.Focus(FocusState.Keyboard); await Task.Delay(100);
+            var removeControl = ((Microsoft.UI.Xaml.Controls.Grid)firstKey.Parent).Children.OfType<Microsoft.UI.Xaml.Controls.Button>().Last();
+            if (removeControl.Visibility != Visibility.Visible) throw new Exception("Keyboard focus did not reveal removal");
             panel.RemoveBinding(0, value => Config = value); await Task.Delay(200);
             if (!panel.CanUndoRemoval || Config.At(0) != null) throw new Exception("Removal did not expose Undo");
             var after = panel.KeyVisualsForSmokeTest();
+            if (firstMenu.Items[1].Visibility != Visibility.Collapsed)
+                throw new Exception("Empty key retained its removal action");
             for (int i = 0; i < before.Length; i++)
                 if (i != 3 && !ReferenceEquals(before[i], after[i])) throw new Exception($"Unrelated visual recreated at {i}");
             if (ReferenceEquals(before[3], after[3])) throw new Exception("Removed binding was not updated");
@@ -390,7 +399,7 @@ public partial class App : Application
             if (panel.CanUndoRemoval) throw new Exception("Stale Undo remained available after slot replacement");
             panel.UndoRemoval(value => Config = value);
             if (Config.At(0)?.Name != "Replacement") throw new Exception("Undo overwrote a replacement binding");
-            File.WriteAllText(report, "PASS: unbinding preserves unrelated visuals, exposes Undo, restores the removed binding while preserving subsequent edits, and cancels Undo when its slot is replaced. User configuration unchanged.");
+            File.WriteAllText(report, "PASS: keyboard focus reveals removal, context-menu action follows binding state; unbinding preserves unrelated visuals, exposes Undo, restores the removed binding while preserving subsequent edits, and cancels Undo when its slot is replaced. User configuration unchanged.");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { Config = original; Quit(); }

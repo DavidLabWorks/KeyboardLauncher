@@ -203,8 +203,18 @@ internal sealed partial class PanelWindow : Window
         Ui.GlassButton(button, false);
         button.Shadow = new ThemeShadow(); button.Translation = new System.Numerics.Vector3(0, 0, 8);
         button.Click += async (_, _) => { if (current == null) await Edit(slot); else await Launch(current); };
-        var menu = new MenuFlyout(); var edit = new MenuFlyoutItem();
-        edit.Click += async (_, _) => await Edit(slot); menu.Items.Add(edit); button.ContextFlyout = menu;
+        var menu = new MenuFlyout();
+        var edit = new MenuFlyoutItem { Icon = new FontIcon { Glyph = "\uE70F" } };
+        var removeItem = new MenuFlyoutItem { Icon = new FontIcon { Glyph = "\uE74D" } };
+        edit.Click += async (_, _) => await Edit(slot);
+        async void Remove(object sender, RoutedEventArgs e)
+        {
+            if (app.BindingSavePending) return;
+            try { RemoveBinding(slot, app.Save); }
+            catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); }
+        }
+        removeItem.Click += Remove;
+        menu.Items.Add(edit); menu.Items.Add(removeItem); button.ContextFlyout = menu;
         var hitArea = new Grid(); hitArea.Children.Add(button);
         var dropMark = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
             <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -216,14 +226,17 @@ internal sealed partial class PanelWindow : Window
         keyCaps[slot] = cap; dropMarks[slot] = dropMark;
         AttachBindingDrag(cap, slot, button);
         var remove = Ui.UnbindButton(); hitArea.Children.Add(remove);
-        remove.Click += async (_, _) =>
-        {
-            if (app.BindingSavePending) return;
-            try { RemoveBinding(slot, app.Save); }
-            catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); }
-        };
-        hitArea.PointerEntered += (_, _) => { if (current != null && bindingSurface == null) remove.Visibility = Visibility.Visible; };
-        hitArea.PointerExited += (_, _) => remove.Visibility = Visibility.Collapsed;
+        remove.Click += Remove;
+        bool hovering = false;
+        void RefreshRemove() => remove.Visibility = current != null && bindingSurface == null &&
+            (hovering || button.FocusState == FocusState.Keyboard || remove.FocusState != FocusState.Unfocused)
+                ? Visibility.Visible : Visibility.Collapsed;
+        hitArea.PointerEntered += (_, _) => { hovering = true; RefreshRemove(); };
+        hitArea.PointerExited += (_, _) => { hovering = false; RefreshRemove(); };
+        button.GotFocus += (_, _) => { RefreshRemove(); };
+        button.LostFocus += (_, _) => DispatcherQueue.TryEnqueue(RefreshRemove);
+        remove.GotFocus += (_, _) => RefreshRemove();
+        remove.LostFocus += (_, _) => DispatcherQueue.TryEnqueue(RefreshRemove);
         var caption = new TextBlock { FontSize = 12, Height = 16, TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, Opacity = .75 };
         var cell = new StackPanel { Spacing = 5, Width = 70 };
         cell.Children.Add(hitArea); cell.Children.Add(caption);
@@ -233,7 +246,7 @@ internal sealed partial class PanelWindow : Window
             if (!initialized || current != item)
             {
                 current = item is null ? null : item with { };
-                cap.Children.Clear();
+                RefreshRemove(); cap.Children.Clear();
                 if (current != null)
                 {
                     cap.Children.Add(movedIcons.Remove(slot, out var icon) ? icon : Ui.KeyIcon(current, 70));
@@ -251,6 +264,8 @@ internal sealed partial class PanelWindow : Window
             initialized = true;
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"{key} · {current?.Name ?? L.T("未绑定")}");
             edit.Text = current == null ? L.T("绑定动作…") : L.T("编辑绑定…");
+            removeItem.Text = L.T("移除绑定");
+            removeItem.Visibility = current != null ? Visibility.Visible : Visibility.Collapsed;
             ToolTipService.SetToolTip(button, current?.Name ?? L.T("绑定动作…"));
             ToolTipService.SetToolTip(caption, current?.Name);
             ToolTipService.SetToolTip(remove, L.T("移除绑定"));

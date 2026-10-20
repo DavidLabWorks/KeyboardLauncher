@@ -41,11 +41,8 @@ internal static class BindingEditor
         private readonly TextBlock appName = new() { Text = L.T("选择应用…"), FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
         private readonly StackPanel fields = new() { Spacing = 20 };
         private readonly TextBlock hint = Ui.SecondaryText("");
-        private readonly TextBlock error = (TextBlock)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
-            <TextBlock xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                       Foreground="{ThemeResource SystemFillColorCriticalBrush}" FontSize="13" TextWrapping="Wrap" Visibility="Collapsed" />
-            """);
-        private readonly TextBlock nameError = Ui.SecondaryText("");
+        private readonly TextBlock error = Ui.ValidationText();
+        private readonly TextBlock nameError = Ui.ValidationText();
         private readonly Button save = Ui.ActionButton(L.T("保存"));
         private readonly List<Button> segments = [];
         private Button chooseApp = null!;
@@ -122,7 +119,7 @@ internal static class BindingEditor
             segmentRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
             segmentRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
             var segmentBackground = new Border { Child = segmentRow, HorizontalAlignment = HorizontalAlignment.Stretch };
-            var titles = new[] { L.T("打开应用"), L.T("打开网址"), L.T("Shell 命令"), L.T("执行快捷键"), L.T("打开文件"), L.T("打开文件夹") };
+            var titles = new[] { L.T("打开应用"), L.T("打开网址"), L.T("运行脚本"), L.T("执行快捷键"), L.T("打开文件"), L.T("打开文件夹") };
             for (int i = 0; i < titles.Length; i++)
             {
                 int index = i;
@@ -250,6 +247,8 @@ internal static class BindingEditor
                 error.Text = ex.Message; error.Visibility = Visibility.Visible;
                 save.IsEnabled = false;
             }
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(name, nameError.Text);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(save, nameError.Text.Length > 0 ? nameError.Text : error.Text);
         }
         private void Save()
         {
@@ -263,6 +262,7 @@ internal static class BindingEditor
             if (string.IsNullOrWhiteSpace(draft.Exec) && string.IsNullOrWhiteSpace(draft.Icon) && string.IsNullOrWhiteSpace(draft.KeyboardShortcut))
                 preview.Children.Add(new FontIcon { Glyph = "\uE710", FontSize = 24, Opacity = .6 });
             else preview.Children.Add(Ui.KeyIcon(draft, 76));
+            ToolTipService.SetToolTip(chooseApp, string.IsNullOrWhiteSpace(application.Text) ? L.T("选择应用…") : application.Text);
             appName.Text = string.IsNullOrWhiteSpace(application.Text) ? L.T("选择应用…") : Path.GetFileNameWithoutExtension(application.Text);
             appPreview.Children.Clear();
             appPreview.Children.Add(string.IsNullOrWhiteSpace(application.Text)
@@ -280,6 +280,7 @@ internal static class BindingEditor
             text.Children.Add(new TextBlock { Text = string.IsNullOrEmpty(target.Text) ? title : string.IsNullOrEmpty(displayName) ? target.Text : displayName, FontSize = 14, TextWrapping = TextWrapping.Wrap });
             var pathLabel = Ui.SecondaryText(target.Text); pathLabel.MaxLines = 2; pathLabel.TextTrimming = TextTrimming.CharacterEllipsis;
             text.Children.Add(pathLabel);
+            ToolTipService.SetToolTip(text, target.Text);
             var button = new PointerButton { Content = text, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(12), CornerRadius = new CornerRadius(10) };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, title);
             button.Click += async (_, _) =>
@@ -320,6 +321,7 @@ internal static class BindingEditor
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
             var path = Ui.SecondaryText(command.Text); path.MaxLines = 2; path.TextTrimming = TextTrimming.CharacterEllipsis;
             path.Visibility = string.IsNullOrWhiteSpace(command.Text) ? Visibility.Collapsed : Visibility.Visible;
+            ToolTipService.SetToolTip(text, command.Text);
             text.Children.Add(fileName); text.Children.Add(path);
             var row = new Grid { ColumnSpacing = 12, VerticalAlignment = VerticalAlignment.Center };
             row.ColumnDefinitions.Add(new() { Width = new GridLength(32) }); row.ColumnDefinitions.Add(new());
@@ -340,6 +342,7 @@ internal static class BindingEditor
                     if (file == null) return;
                     scriptFile = true; command.Text = file.Path;
                     fileName.Text = file.Name; path.Text = file.Path; path.Visibility = Visibility.Visible;
+                    ToolTipService.SetToolTip(text, file.Path);
                     if (string.IsNullOrWhiteSpace(name.Text) || name.Text == L.T("新建项目")) name.Text = Path.GetFileNameWithoutExtension(file.Name);
                     error.Visibility = Visibility.Collapsed;
                     UpdatePreview(); Validate();

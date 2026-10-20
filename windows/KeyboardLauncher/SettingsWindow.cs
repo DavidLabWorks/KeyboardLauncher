@@ -299,9 +299,18 @@ internal sealed class SettingsWindow : Window
         name.Children.Add(new TextBlock { Text = App.DisplayName, FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         name.Children.Add(Note(L.F("版本 {0}", typeof(App).Assembly.GetName().Version!.ToString(3))));
         Grid.SetColumn(name, 1); brand.Children.Add(name);
-        var check = SettingsButton(L.T("检测更新")); Grid.SetColumn(check, 2); brand.Children.Add(check);
+        var check = SettingsButton(L.T("检测更新"));
+        if (StoreIntegration.IsPackaged) { Grid.SetColumn(check, 2); brand.Children.Add(check); }
+        else
+        {
+            var releases = new HyperlinkButton { Content = L.T("查看新版本"), FontSize = 13,
+                NavigateUri = new Uri("https://github.com/DavidLabWorks/KeyboardLauncher/releases"), VerticalAlignment = VerticalAlignment.Center };
+            ToolTipService.SetToolTip(releases, L.T("前往 GitHub 查看发布版本。"));
+            Grid.SetColumn(releases, 2); brand.Children.Add(releases);
+        }
         var overview = new StackPanel { Spacing = 14 }; overview.Children.Add(brand);
         overview.Children.Add(Note(L.T("你的应用，一键即达。")));
+        if (!StoreIntegration.IsPackaged) overview.Children.Add(Note(L.T("本地安装版本 · 从 GitHub 获取更新")));
         var github = new HyperlinkButton { Content = "GitHub · DavidLabWorks/KeyboardLauncher", NavigateUri = new Uri("https://github.com/DavidLabWorks/KeyboardLauncher"), HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(0), FontSize = 13 };
         ToolTipService.SetToolTip(github, L.T("源代码与发布版本。")); overview.Children.Add(github);
         var status = Note(""); status.Visibility = Visibility.Collapsed;
