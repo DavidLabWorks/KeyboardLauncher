@@ -12,13 +12,24 @@ namespace KeyboardLauncher;
 internal sealed class SettingsWindow : Window
 {
     private readonly App app;
-    private readonly TextBlock brand = new() { FontSize = 10, Opacity = .45, Margin = new Thickness(0), TextWrapping = TextWrapping.Wrap };
-    private readonly Button quitButton = new PointerButton { Template = RoundedTemplate("Button"), Background = new SolidColorBrush(Colors.Transparent), Foreground = new SolidColorBrush(Colors.Gray), Padding = new Thickness(0, 4, 0, 4), MinWidth = 0, MinHeight = 28, UseSystemFocusVisuals = true };
+    private readonly TextBlock brand = new()
+    {
+        Text = App.DisplayName, FontSize = 11, Opacity = .6,
+        TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis,
+        Margin = new Thickness(8, 0, 0, 0)
+    };
+    private readonly Button quitButton = new PointerButton { Background = new SolidColorBrush(Colors.Transparent), BorderThickness = new Thickness(0), Padding = new Thickness(8, 6, 8, 6), MinWidth = 0, MinHeight = 36, UseSystemFocusVisuals = true };
     private readonly Grid root = new();
-    private readonly StackPanel detail = new() { Spacing = 28, Padding = new Thickness(28), MaxWidth = 740, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly StackPanel detail = new() { Spacing = 24, Padding = new Thickness(28), MaxWidth = 740, HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ListView navigation = new() { Margin = new Thickness(10, 10, 10, 0), SelectionMode = ListViewSelectionMode.Single };
-    private readonly Grid body = new();
-    private readonly Border sidebarSurface = new() { Margin = new Thickness(8, 6, 0, 8), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(.5), Shadow = new ThemeShadow(), Translation = new System.Numerics.Vector3(0, 0, 8) };
+    private readonly Grid body = (Grid)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+        <Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" />
+        """);
+    private readonly Border sidebarSurface = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+        <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                Background="{ThemeResource LayerFillColorDefaultBrush}" Margin="8,6,0,8" CornerRadius="12" />
+        """);
     private readonly TextBlock titleText = new() { FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
 
     internal SettingsWindow(App app)
@@ -41,19 +52,22 @@ internal sealed class SettingsWindow : Window
         var sidebar = new Grid(); sidebar.RowDefinitions.Add(new()); sidebar.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var labels = new[] { L.T("常规"), L.T("快捷键"), L.T("系统"), L.T("关于") };
         var glyphs = new[] { "\uE713", "\uE765", "\uE770", "\uE946" };
-        var colors = new[] { Colors.Gray, Colors.DodgerBlue, Colors.MediumPurple, Colors.DodgerBlue };
         for (var i = 0; i < labels.Length; i++)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Padding = new Thickness(0, 5, 0, 5) };
-            row.Children.Add(new Border { Width = 26, Height = 26, CornerRadius = new CornerRadius(7), Background = new SolidColorBrush(colors[i]), Child = new FontIcon { Glyph = glyphs[i], FontSize = 13, Foreground = new SolidColorBrush(Colors.White) } });
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Padding = new Thickness(2, 5, 0, 5) };
+            row.Children.Add(new FontIcon { Glyph = glyphs[i], FontSize = 18, Width = 24, VerticalAlignment = VerticalAlignment.Center });
             row.Children.Add(new TextBlock { Text = labels[i], FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
-            navigation.Items.Add(new PointerListViewItem { Template = RoundedTemplate("ListViewItem"), Content = row, Tag = labels[i], CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 2, 0, 2), HorizontalContentAlignment = HorizontalAlignment.Stretch });
+            navigation.Items.Add(new PointerListViewItem { Template = RoundedTemplate("ListViewItem"), Content = row, Tag = labels[i], MinHeight = 44, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 2, 0, 2), HorizontalContentAlignment = HorizontalAlignment.Stretch });
         }
         navigation.SelectionChanged += (_, _) => ShowPage(); sidebar.Children.Add(navigation);
         brand.Text = App.DisplayName;
-        var footer = new StackPanel { Spacing = 8, Margin = new Thickness(18, 8, 18, 14) };
-        footer.Children.Add(new Border { Height = 1, Opacity = .2, Background = new SolidColorBrush(Colors.Gray), Margin = new Thickness(0, 0, 0, 4) });
-        SetQuitLabel(); quitButton.HorizontalAlignment = HorizontalAlignment.Left;
+        var footer = new StackPanel { Spacing = 8, Margin = new Thickness(18, 12, 18, 16) };
+        SetQuitLabel(); quitButton.HorizontalAlignment = HorizontalAlignment.Stretch;
+        quitButton.Style = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+            <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+            """);
         quitButton.HorizontalContentAlignment = HorizontalAlignment.Left;
         quitButton.Click += (_, _) => app.Quit();
         footer.Children.Add(quitButton); footer.Children.Add(brand);
@@ -82,12 +96,8 @@ internal sealed class SettingsWindow : Window
 
     private void SetQuitLabel()
     {
-        var label = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7 };
-        label.Children.Add((UIElement)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
-            <Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Width="16" Height="16" VerticalAlignment="Center">
-                <Path Width="20" Height="20" Data="M 11,3 L 4,3 Q 2,3 2,5 L 2,15 Q 2,17 4,17 L 11,17 M 8,10 L 18,10 M 14,6 L 18,10 L 14,14" Stroke="Gray" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-            </Viewbox>
-            """));
+        var label = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        label.Children.Add(new FontIcon { Glyph = "\uF3B1", FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 14, Width = 24, VerticalAlignment = VerticalAlignment.Center });
         label.Children.Add(new TextBlock { Text = L.T("退出"), FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
         quitButton.Content = label;
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(quitButton, L.T("退出"));
@@ -103,18 +113,7 @@ internal sealed class SettingsWindow : Window
     private void ApplySurface()
     {
         bool dark = root.ActualTheme == ElementTheme.Dark;
-        body.Background = new SolidColorBrush(dark ? Windows.UI.Color.FromArgb(255, 29, 29, 29) : Windows.UI.Color.FromArgb(255, 245, 245, 245));
         root.Background = new SolidColorBrush(Colors.Transparent);
-        sidebarSurface.Background = new AcrylicBrush
-        {
-            TintColor = dark ? Windows.UI.Color.FromArgb(255, 31, 43, 52) : Windows.UI.Color.FromArgb(255, 218, 240, 250),
-            TintOpacity = .72,
-            FallbackColor = dark ? Windows.UI.Color.FromArgb(255, 34, 45, 54) : Windows.UI.Color.FromArgb(255, 224, 242, 251)
-        };
-        sidebarSurface.BorderBrush = new SolidColorBrush(dark ? Windows.UI.Color.FromArgb(30, 255, 255, 255) : Windows.UI.Color.FromArgb(210, 255, 255, 255));
-        var selected = new SolidColorBrush(dark ? Windows.UI.Color.FromArgb(255, 65, 65, 65) : Windows.UI.Color.FromArgb(255, 220, 220, 220));
-        foreach (ListViewItem item in navigation.Items)
-            item.Background = item.IsSelected ? selected : new SolidColorBrush(Colors.Transparent);
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var immersiveDark = dark ? 1 : 0;
         Native.DwmSetWindowAttribute(handle, 20, ref immersiveDark, sizeof(int));
@@ -137,11 +136,11 @@ internal sealed class SettingsWindow : Window
                 <VisualStateManager.VisualStateGroups>
                     <VisualStateGroup x:Name="CommonStates">
                         <VisualState x:Name="Normal" />
-                        <VisualState x:Name="Selected" />
-                        <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Surface.Opacity" Value="0.8" /></VisualState.Setters></VisualState>
-                        <VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="Surface.Opacity" Value="0.8" /></VisualState.Setters></VisualState>
-                        <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Surface.Opacity" Value="0.6" /></VisualState.Setters></VisualState>
-                        <VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="Surface.Opacity" Value="0.6" /></VisualState.Setters></VisualState>
+                        <VisualState x:Name="Selected"><VisualState.Setters><Setter Target="Surface.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" /></VisualState.Setters></VisualState>
+                        <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Surface.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" /></VisualState.Setters></VisualState>
+                        <VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="Surface.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" /></VisualState.Setters></VisualState>
+                        <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Surface.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" /></VisualState.Setters></VisualState>
+                        <VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="Surface.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" /></VisualState.Setters></VisualState>
                         <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="Surface.Opacity" Value="0.4" /></VisualState.Setters></VisualState>
                     </VisualStateGroup>
                 </VisualStateManager.VisualStateGroups>
@@ -149,33 +148,23 @@ internal sealed class SettingsWindow : Window
             </Border>
         </ControlTemplate>
         """);
-    private static Button SettingsButton(string title)
+    private static Button SettingsButton(string title) => Ui.ActionButton(title);
+    private static TextBlock Note(string text) => Ui.SecondaryText(text);
+    private static Border Card(UIElement content, double radius = 12)
     {
-        var button = new PointerButton { Content = title, Template = RoundedTemplate("Button"), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 6, 12, 6), FontSize = 13, MinHeight = 30, UseSystemFocusVisuals = true, HorizontalContentAlignment = HorizontalAlignment.Center };
-        void Paint()
-        {
-            bool dark = button.ActualTheme == ElementTheme.Dark;
-            button.Background = new SolidColorBrush(dark ? Windows.UI.Color.FromArgb(255, 65, 65, 65) : Windows.UI.Color.FromArgb(255, 236, 236, 236));
-            button.Foreground = new SolidColorBrush(dark ? Colors.White : Windows.UI.Color.FromArgb(255, 35, 35, 35));
-        }
-        button.Loaded += (_, _) => Paint(); button.ActualThemeChanged += (_, _) => Paint(); Paint();
-        return button;
-    }
-    private static TextBlock Note(string text) => new() { Text = text, FontSize = 12, Opacity = .6, TextWrapping = TextWrapping.Wrap };
-    private static Border Card(UIElement content, double radius = 8)
-    {
-        var card = new Border { Child = content, Padding = new Thickness(20), CornerRadius = new CornerRadius(radius) };
-        void Paint() => card.Background = new SolidColorBrush(card.ActualTheme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255, 40, 40, 40) : Windows.UI.Color.FromArgb(255, 253, 253, 253));
-        card.Loaded += (_, _) => Paint(); card.ActualThemeChanged += (_, _) => Paint(); Paint(); return card;
+        var card = Ui.Card(content); card.CornerRadius = new CornerRadius(radius); return card;
     }
     private void Section(string title, params UIElement[] children)
     {
         var section = new StackPanel { Spacing = 10 };
-        section.Children.Add(new TextBlock { Text = title, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Opacity = .6, Margin = new Thickness(6, 0, 0, 0) });
-        var group = new StackPanel { Spacing = 18 };
+        if (title != titleText.Text)
+            section.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var group = new StackPanel { Spacing = 20 };
         for (var i = 0; i < children.Length; i++)
         {
-            if (i > 0) group.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(20, 128, 128, 128)) });
+            if (i > 0) group.Children.Add((Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+                <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                """));
             group.Children.Add(children[i]);
         }
         section.Children.Add(Card(group)); detail.Children.Add(section);
@@ -183,7 +172,18 @@ internal sealed class SettingsWindow : Window
     private static Border SegmentedPicker(string name, (string Label, string Value)[] options, string selected, Action<string> changed)
     {
         var grid = new Grid();
-        var host = new Border { Child = grid, Width = options.Length == 2 ? 154 : 210, HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(3), CornerRadius = new CornerRadius(8), VerticalAlignment = VerticalAlignment.Center };
+        var host = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+            <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    Background="{ThemeResource ControlFillColorSecondaryBrush}" Padding="3" CornerRadius="8"
+                    HorizontalAlignment="Right" VerticalAlignment="Center" />
+            """);
+        host.Child = grid; host.Width = options.Length == 2 ? 154 : 210;
+        var selectedStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+            <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="RadioButton">
+                <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+            </Style>
+            """);
         var group = Guid.NewGuid().ToString();
         var template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
             <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="RadioButton">
@@ -196,16 +196,14 @@ internal sealed class SettingsWindow : Window
         RadioButton? hovered = null;
         void Paint()
         {
-            bool dark = host.ActualTheme == ElementTheme.Dark;
-            host.Background = new SolidColorBrush(dark ? Windows.UI.Color.FromArgb(255, 55, 55, 55) : Windows.UI.Color.FromArgb(255, 232, 232, 232));
             foreach (var button in buttons)
             {
                 bool active = button.IsChecked == true;
-                button.Background = new SolidColorBrush(active
-                    ? Windows.UI.Color.FromArgb(255, 0, 110, 245)
-                    : button == hovered ? Windows.UI.Color.FromArgb(25, 128, 128, 128) : Colors.Transparent);
-                button.Foreground = new SolidColorBrush(active || dark ? Colors.White : Windows.UI.Color.FromArgb(255, 35, 35, 35));
-                button.BorderBrush = new SolidColorBrush(active ? Windows.UI.Color.FromArgb(15, dark ? (byte)255 : (byte)0, dark ? (byte)255 : (byte)0, dark ? (byte)255 : (byte)0) : Colors.Transparent);
+                button.Style = active ? selectedStyle : null;
+                button.ClearValue(Control.ForegroundProperty);
+                if (active) button.ClearValue(Control.BackgroundProperty);
+                else button.Background = new SolidColorBrush(button == hovered ? Windows.UI.Color.FromArgb(25, 128, 128, 128) : Colors.Transparent);
+                button.BorderBrush = new SolidColorBrush(Colors.Transparent);
                 button.FontWeight = active ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
             }
         }
@@ -213,7 +211,7 @@ internal sealed class SettingsWindow : Window
         {
             var option = options[i]; grid.ColumnDefinitions.Add(new());
             var button = new PointerRadioButton { Content = option.Label, GroupName = group, IsChecked = option.Value == selected,
-                Template = template, Height = 28, MinHeight = 0, MinWidth = 0, FontSize = 12, Padding = new Thickness(0),
+                Template = template, Height = 32, MinHeight = 32, MinWidth = 0, FontSize = 13, Padding = new Thickness(0),
                 CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(.5), HorizontalAlignment = HorizontalAlignment.Stretch,
                 UseSystemFocusVisuals = true };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, name + ": " + option.Label);
@@ -228,10 +226,10 @@ internal sealed class SettingsWindow : Window
     }
     private static Grid Row(string title, string description, FrameworkElement control)
     {
-        var row = new Grid { ColumnSpacing = 20 };
+        var row = new Grid { ColumnSpacing = 24, MinHeight = 44 };
         row.ColumnDefinitions.Add(new()); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var label = new StackPanel { Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
-        label.Children.Add(new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium }); label.Children.Add(Note(description));
+        label.Children.Add(new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium }); label.Children.Add(Note(description));
         row.Children.Add(label);
         control.HorizontalAlignment = HorizontalAlignment.Right;
         if (control is ToggleSwitch toggle)
@@ -253,6 +251,7 @@ internal sealed class SettingsWindow : Window
     {
         ApplySurface();
         detail.Children.Clear(); titleText.Text = Title = (navigation.SelectedItem as ListViewItem)?.Tag?.ToString() ?? L.T("常规");
+        detail.Children.Add(new TextBlock { Text = titleText.Text, FontSize = 24, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         if (app.StartupError != null) detail.Children.Add(new InfoBar { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Warning, Title = L.T("启动提示"), Message = app.StartupError });
         switch (navigation.SelectedIndex) { case 0: General(); break; case 1: Shortcuts(); break; case 2: SystemSettings(); break; case 3: About(); break; }
         if (navigation.SelectedIndex != 3) detail.Children.Add(Note(L.T("更改会自动保存。")));
@@ -291,13 +290,20 @@ internal sealed class SettingsWindow : Window
     }
     private void About()
     {
-        var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 20 };
-        brand.Children.Add(Ui.AppIcon(76));
-        var name = new StackPanel { Spacing = 7, VerticalAlignment = VerticalAlignment.Center };
-        name.Children.Add(new TextBlock { Text = App.DisplayName, FontSize = 24, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        name.Children.Add(Note(L.T("你的应用，一键即达。"))); name.Children.Add(Note(L.F("版本 {0}", typeof(App).Assembly.GetName().Version!.ToString(3)))); brand.Children.Add(name); detail.Children.Add(Card(brand));
-        var github = new HyperlinkButton { Content = "DavidLabWorks/KeyboardLauncher", NavigateUri = new Uri("https://github.com/DavidLabWorks/KeyboardLauncher") };
-        var check = SettingsButton(L.T("检测更新"));
+        var brand = new Grid { ColumnSpacing = 16 };
+        brand.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        brand.ColumnDefinitions.Add(new());
+        brand.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        brand.Children.Add(Ui.AppIcon(56));
+        var name = new StackPanel { Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        name.Children.Add(new TextBlock { Text = App.DisplayName, FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        name.Children.Add(Note(L.F("版本 {0}", typeof(App).Assembly.GetName().Version!.ToString(3))));
+        Grid.SetColumn(name, 1); brand.Children.Add(name);
+        var check = SettingsButton(L.T("检测更新")); Grid.SetColumn(check, 2); brand.Children.Add(check);
+        var overview = new StackPanel { Spacing = 14 }; overview.Children.Add(brand);
+        overview.Children.Add(Note(L.T("你的应用，一键即达。")));
+        var github = new HyperlinkButton { Content = "GitHub · DavidLabWorks/KeyboardLauncher", NavigateUri = new Uri("https://github.com/DavidLabWorks/KeyboardLauncher"), HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(0), FontSize = 13 };
+        ToolTipService.SetToolTip(github, L.T("源代码与发布版本。")); overview.Children.Add(github);
         var status = Note(""); status.Visibility = Visibility.Collapsed;
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(status, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
         var release = new HyperlinkButton { Content = L.T("在 Microsoft Store 更新"), NavigateUri = new Uri("ms-windows-store://downloadsandupdates"), Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Left };
@@ -323,9 +329,8 @@ internal sealed class SettingsWindow : Window
             catch { status.Text = L.T("无法检测更新，请重试。"); }
             finally { check.IsEnabled = true; check.Content = L.T("检测更新"); }
         };
-        Section(L.T("关于"), Row("GitHub", L.T("源代码与发布版本。"), github),
-            Row(L.T("版本"), L.F("版本 {0}", typeof(App).Assembly.GetName().Version!.ToString(3)), check));
-        detail.Children.Add(status); detail.Children.Add(release);
+        overview.Children.Add(status); overview.Children.Add(release);
+        detail.Children.Add(Card(overview));
         LicenseSection();
     }
     private void LicenseSection()
@@ -360,8 +365,10 @@ internal sealed class SettingsWindow : Window
             await app.Licensing.RefreshAsync();
             busy = false; RefreshStatus();
         };
-        Section(L.T("授权"), Note(L.T("免费试用 7 天，之后一次性购买完整版。")), status, actions);
-        detail.Children.Add(message);
+        var license = new StackPanel { Spacing = 12 };
+        license.Children.Add(Note(L.T("免费试用 7 天，之后一次性购买完整版。")));
+        license.Children.Add(status); license.Children.Add(actions); license.Children.Add(message);
+        Section(L.T("授权"), license);
     }
     private static bool StartupEnabled()
     {
@@ -375,7 +382,7 @@ internal sealed class SettingsWindow : Window
             Save(app.Config with { Shortcut = value ?? "" });
             return app.Config.Shortcut;
         });
-        var clear = SettingsButton(L.T("清空"));
+        var clear = SettingsButton(L.T("清空")); clear.MinHeight = 44; clear.MinWidth = 64;
         void RefreshShortcut() => clear.IsEnabled = !string.IsNullOrWhiteSpace(shortcut.Value);
         shortcut.ValueChanged += RefreshShortcut;
         clear.Click += (_, _) => shortcut.Clear();
@@ -387,16 +394,29 @@ internal sealed class SettingsWindow : Window
             Save(app.Config with { DoubleTapKey = value });
             return app.Config.DoubleTapKey;
         });
-        var clearDoubleTap = SettingsButton(L.T("清空"));
+        var clearDoubleTap = SettingsButton(L.T("清空")); clearDoubleTap.MinHeight = 44; clearDoubleTap.MinWidth = 64;
         void RefreshDoubleTap() => clearDoubleTap.IsEnabled = !string.IsNullOrWhiteSpace(doubleTap.Value);
         doubleTap.ValueChanged += RefreshDoubleTap;
         clearDoubleTap.Click += (_, _) => doubleTap.Clear();
         RefreshDoubleTap();
         var doubleTapRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         doubleTapRow.Children.Add(doubleTap); doubleTapRow.Children.Add(clearDoubleTap);
-        Section(L.T("快捷键"), Row(L.T("键盘快捷键"), L.T("点击录入器后按下组合键，松开后保存。"), shortcutRow), Row(L.T("双击按键"), L.T("点击录入器后按下 Ctrl、Alt、Shift 或 Space；修饰键区分左右。"), doubleTapRow));
-        detail.Children.Add(Note(L.T("连续按两次录入的按键以显示或隐藏；清空后关闭。")));
-        detail.Children.Add(Note(L.T("仅响应所选侧的按键；选择任意一侧时，两次须为同一侧。长按、组合键和鼠标点击会取消检测。")));
+        static StackPanel Setting(string title, string description, FrameworkElement control)
+        {
+            var group = new StackPanel { Spacing = 12 };
+            var row = new Grid { ColumnSpacing = 16 };
+            row.ColumnDefinitions.Add(new()); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            row.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
+            Grid.SetColumn(control, 1); row.Children.Add(control);
+            group.Children.Add(row); group.Children.Add(Note(description)); return group;
+        }
+        var normal = Setting(L.T("键盘快捷键"), L.T("点击录入器后按下组合键，松开后保存。"), shortcutRow);
+        var doubleGroup = Setting(L.T("双击按键"), L.T("点击录入器后按下 Ctrl、Alt、Shift 或 Space；修饰键区分左右。"), doubleTapRow);
+        doubleGroup.Children.Add(Note(L.T("连续按两次录入的按键以显示或隐藏；清空后关闭。")));
+        var help = new Expander { Header = L.T("双击检测规则"), HorizontalAlignment = HorizontalAlignment.Stretch,
+            Content = Note(L.T("仅响应所选侧的按键；选择任意一侧时，两次须为同一侧。长按、组合键和鼠标点击会取消检测。")) };
+        doubleGroup.Children.Add(help);
+        Section(L.T("快捷键"), normal, doubleGroup);
     }
     private void SystemSettings()
     {

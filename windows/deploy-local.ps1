@@ -7,7 +7,7 @@ $source = (Resolve-Path -LiteralPath $SourceDirectory).ProviderPath.TrimEnd('\')
 $destination = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs\KeyboardLauncher'))
 $executable = Join-Path $destination 'KeyboardLauncher.exe'
 if ($source.Equals($destination, [StringComparison]::OrdinalIgnoreCase)) { throw 'Choose a build output directory, not the installed directory.' }
-foreach ($required in @('KeyboardLauncher.exe', 'KeyboardLauncher.dll', 'KeyboardLauncher.Core.dll', 'KeyboardLauncher.runtimeconfig.json', 'Assets\AppIcon.ico')) {
+foreach ($required in @('KeyboardLauncher.exe', 'KeyboardLauncher.dll', 'KeyboardLauncher.Core.dll', 'KeyboardLauncher.runtimeconfig.json', 'Assets\AppIcon.ico', 'Assets\ShellNamesEnglish.dll', 'Assets\ShellNamesChinese.dll')) {
     if (-not (Test-Path -LiteralPath (Join-Path $source $required) -PathType Leaf)) { throw "Incomplete build output: $required" }
 }
 

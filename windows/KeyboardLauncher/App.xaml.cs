@@ -64,12 +64,29 @@ public partial class App : Application
             }
             Exit(); return;
         }
+        if (Environment.GetCommandLineArgs().Contains("--refresh-shell-names"))
+        {
+            var report = Path.Combine(Path.GetDirectoryName(Store.FilePath)!, "shell-names.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(report)!);
+            try { File.WriteAllText(report, StoreIntegration.IsPackaged ? "{\"ManagedByPackage\":true}" : StartMenuLocalization.Apply()); }
+            catch (Exception ex)
+            {
+                File.WriteAllText(report, System.Text.Json.JsonSerializer.Serialize(new { Error = ex.Message }));
+                Environment.ExitCode = 1;
+            }
+            Exit(); return;
+        }
         instance = new Mutex(true, "Local\\KeyboardLauncher.Windows." + Environment.UserName, out bool created);
         if (!created)
         {
             try { using var signal = EventWaitHandle.OpenExisting("Local\\KeyboardLauncher.Activate." + Environment.UserName); signal.Set(); }
             catch (WaitHandleCannotBeOpenedException) { Native.MessageBoxW(0, L.T("指间 · Keyboard Launcher 正在启动，请稍后重试。"), DisplayName, 0x40); }
             instance.Dispose(); instance = null; Exit(); return;
+        }
+        if (!StoreIntegration.IsPackaged)
+        {
+            try { StartMenuLocalization.Apply(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Start menu localization: " + ex.Message); }
         }
         try { Config = Store.Load(); }
         catch (Exception ex) { ConfigLoadFailed = true; StartupError = L.T("配置读取失败，原文件已保留。本次使用默认配置；请先修复配置并重启。\n") + ex.Message; }
@@ -357,12 +374,23 @@ public partial class App : Application
             panel!.Refresh(); panel.Show(); await Task.Delay(200);
             if (!panel.HasNeutralFocus) throw new InvalidOperationException("Reopened panel retained button focus");
             var before = panel.KeyVisualsForSmokeTest();
-            Config = Config.Bind(0, null); panel.Refresh(); await Task.Delay(200);
+            panel.RemoveBinding(0, value => Config = value); await Task.Delay(200);
+            if (!panel.CanUndoRemoval || Config.At(0) != null) throw new Exception("Removal did not expose Undo");
             var after = panel.KeyVisualsForSmokeTest();
             for (int i = 0; i < before.Length; i++)
                 if (i != 3 && !ReferenceEquals(before[i], after[i])) throw new Exception($"Unrelated visual recreated at {i}");
             if (ReferenceEquals(before[3], after[3])) throw new Exception("Removed binding was not updated");
-            File.WriteAllText(report, "PASS: unbinding updates only the affected key content; all key buttons, captions and unrelated icons retain their visual instances. User configuration unchanged.");
+            Config = Config.Bind(1, Config.At(1)! with { Name = "Edited after removal" });
+            panel.UndoRemoval(value => Config = value);
+            if (panel.CanUndoRemoval || Config.At(0)?.Name != "Test" || Config.At(1)?.Name != "Edited after removal")
+                throw new Exception("Undo failed to restore the removed binding or preserve another edit");
+            panel.RemoveBinding(0, value => Config = value);
+            Config = Config.Bind(0, new() { Name = "Replacement", Exec = "cmd.exe" });
+            panel.Refresh();
+            if (panel.CanUndoRemoval) throw new Exception("Stale Undo remained available after slot replacement");
+            panel.UndoRemoval(value => Config = value);
+            if (Config.At(0)?.Name != "Replacement") throw new Exception("Undo overwrote a replacement binding");
+            File.WriteAllText(report, "PASS: unbinding preserves unrelated visuals, exposes Undo, restores the removed binding while preserving subsequent edits, and cancels Undo when its slot is replaced. User configuration unchanged.");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { Config = original; Quit(); }

@@ -112,6 +112,18 @@ internal static class ShortcutSmokeTest
             Require(!singleCapture.IsRecording, "reactivating a window resumed recording");
             shortcutCapture.Clear(); singleCapture.Clear();
             Require(capturedShortcut == null && capturedSingle == null, "clear did not persist empty values");
+            string? actionValue = null;
+            var actionCapture = new ShortcutCapture(app, probe, false, "Action shortcut", actionValue,
+                value => actionValue = value, requireModifier: false, cancelOnEscape: false);
+            captureFields.Children.Add(actionCapture); await Task.Delay(100);
+            foreach (var (key, expected) in new (ushort, string)[] { (0x77, "f8"), (0x1B, "esc"), (0x41, "a") })
+            {
+                actionCapture.StartRecording(); Send(key); await Task.Delay(150);
+                Require(!actionCapture.IsRecording && actionValue == expected,
+                    "action recorder rejected a plain key or Escape: " + actionValue);
+            }
+            actionCapture.StartRecording(); outside.Focus(FocusState.Programmatic); await Task.Delay(100);
+            Require(!actionCapture.IsRecording && actionValue == "a", "action recorder did not cancel on focus loss");
             probe.Content = input;
             input.Focus(FocusState.Programmatic);
             app.EndShortcutRecording(hwnd); app.SuspendHotkeys(false);
@@ -127,7 +139,7 @@ internal static class ShortcutSmokeTest
             Require(Native.GetForegroundWindow() == hwnd, "previous app focus not restored");
             Require(input.SelectedText == input.Text && delivered > 0, "saved shortcut did not execute");
             Require(!app.HasPressedKeys && Native.Modifiers == 0, "stuck execution modifiers");
-            return "PASS: Ctrl+A and Alt+F4 captured without executing; all six double-tap modifier sides recorded; actual fields record held Alt and Space, persist selections, and reject chords; recorder buttons save on release, stop, cancel on Esc/focus loss, stay idle on reactivation, and clear; isolated save/reload; real launcher dispatch restores target focus and executes Ctrl+A; modifiers released.";
+            return "PASS: Ctrl+A and Alt+F4 captured without executing; all six double-tap modifier sides recorded; actual fields record held Alt and Space, persist selections, and reject chords; recorder buttons save on release, stop, cancel on Esc/focus loss, stay idle on reactivation, and clear; plain action keys and Escape captured; isolated save/reload; real launcher dispatch restores target focus and executes Ctrl+A; modifiers released.";
         }
         finally
         {

@@ -176,3 +176,20 @@ Windows 客户端默认使用 English。在 General → Language 可通过分段
 报告包含监听事件计数、距上次回调时间、按键总数、残留状态数量、录入/暂停状态和最近一次修饰键判断；不记录文字、普通按键历史或其他应用标题。失效时先保留运行实例并采集状态，避免重启后丢失线索。
 
 检测会在处理新事件前校对未被拦截的按键状态，恢复漏掉松开事件后的双击识别；被录入拦截的按键保留独立处理，避免误判长按。键盘回调释放状态锁后才调用后续钩子。`--control-smoke-test` 额外覆盖普通键和 Control 漏松开事件的恢复。
+
+## 开始菜单名称本地化
+
+中文 Windows 显示“指间”，英文及其他未提供翻译的 Windows 显示“KeyboardLauncher”。名称使用 Windows 显示语言，与应用内部语言设置分开。
+
+- MSIX：`AppDisplayName` 来自 `Strings/zh-CN/Resources.resw` 和 `Strings/en-US/Resources.resw`，打包时通过 `ms-resource:AppDisplayName` 引用。
+- 本地 EXE：首次启动及之后每次启动时，为当前用户已存在、且目标为固定安装路径的开始菜单快捷方式设置本地化显示名。切换 Windows 显示语言后，重新登录并启动程序即可刷新。快捷方式实际文件名、目录、目标和卸载身份均保持不变，不创建另一份快捷方式。
+- 只刷新现有入口可运行固定安装目录下的 `KeyboardLauncher.exe --refresh-shell-names`；报告在 `%LOCALAPPDATA%\KeyboardLauncher\shell-names.json`，不启动面板或重启主进程。
+
+本地显示名通过 `SHSetLocalizedName` 引用 `Assets/ShellNamesEnglish.dll` 或 `Assets/ShellNamesChinese.dll`。两者是没有入口和可执行代码的纯资源 DLL，可由 x64 和 ARM64 Shell 作为数据加载。已提交生成文件，普通构建不要求额外安装 C++ 编译器；`check-shell-names.ps1` 验证它们与 RESW 名称一致。
+
+修改名称资源后，使用 Windows SDK 的 `rc.exe` 和 Visual Studio 的 `link.exe` 重新生成，再运行检查：
+
+```powershell
+./windows/build-shell-resources.ps1 -ResourceCompiler '<Windows SDK>/rc.exe' -Linker '<Visual Studio>/link.exe'
+./windows/check-shell-names.ps1
+```

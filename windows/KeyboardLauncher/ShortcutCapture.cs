@@ -10,10 +10,16 @@ namespace KeyboardLauncher;
 // An explicit recording action, rather than an editable or focus-activated field.
 internal sealed class ShortcutCapture : ContentControl
 {
+    private static readonly Style RecordingStyle = (Style)XamlReader.Load("""
+        <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="Button">
+            <Setter Property="BorderBrush" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+        </Style>
+        """);
     private readonly App app;
     private readonly Window window;
     private readonly nint hwnd;
     private readonly bool singleKey;
+    private readonly bool requireModifier, cancelOnEscape;
     private readonly string label;
     private readonly Func<string?, string?> save;
     private readonly Button trigger = new PointerButton
@@ -27,10 +33,11 @@ internal sealed class ShortcutCapture : ContentControl
     internal string? Value { get; private set; }
     internal event Action? ValueChanged;
 
-    internal ShortcutCapture(App app, Window window, bool singleKey, string label, string? value, Func<string?, string?> save)
+    internal ShortcutCapture(App app, Window window, bool singleKey, string label, string? value, Func<string?, string?> save, bool requireModifier = true, bool cancelOnEscape = true)
     {
         this.app = app; this.window = window; this.singleKey = singleKey;
         this.label = label; this.save = save; Value = value;
+        this.requireModifier = requireModifier; this.cancelOnEscape = cancelOnEscape;
         hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
         Width = 228;
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
@@ -59,7 +66,7 @@ internal sealed class ShortcutCapture : ContentControl
         if (!IsLoaded || IsRecording) return;
         trigger.Focus(FocusState.Programmatic);
         IsRecording = true; completing = false;
-        app.BeginShortcutRecording(hwnd, Recorded, singleKey, StopRecording);
+        app.BeginShortcutRecording(hwnd, Recorded, singleKey, cancelOnEscape ? StopRecording : null);
         timeout.Start(); Render();
     }
 
@@ -81,7 +88,7 @@ internal sealed class ShortcutCapture : ContentControl
                 0xA0 => "leftShift", 0xA1 => "rightShift", 0xA2 => "leftControl", 0xA3 => "rightControl",
                 0xA4 => "leftAlt", 0xA5 => "rightAlt", 0x20 => "space", _ => throw new FormatException()
             } : key.ToShortcutString();
-            if (!singleKey) Hotkey.Parse(value);
+            if (!singleKey) Hotkey.Parse(value, requireModifier);
         }
         catch (FormatException) { return; }
         completing = true;
@@ -104,13 +111,13 @@ internal sealed class ShortcutCapture : ContentControl
         row.Children.Add(new FontIcon { Glyph = "\uE765", FontSize = 15, Opacity = IsRecording ? 1 : .55, Margin = new Thickness(0, 0, 3, 0) });
         if (IsRecording)
         {
-            trigger.BorderBrush = (Brush)Application.Current.Resources["SystemControlHighlightAccentBrush"];
+            trigger.Style = RecordingStyle;
             row.Children.Add(new TextBlock { Text = L.T(singleKey ? "请按下单个键…" : "请按下组合键…"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
-            row.Children.Add(Keycap("Esc"));
+            if (cancelOnEscape) row.Children.Add(Keycap("Esc"));
         }
         else
         {
-            trigger.ClearValue(Control.BorderBrushProperty);
+            trigger.Style = null;
             if (string.IsNullOrWhiteSpace(Value))
                 row.Children.Add(new TextBlock { Text = L.T("点击录入"), FontSize = 13, Opacity = .6 });
             else
@@ -118,7 +125,7 @@ internal sealed class ShortcutCapture : ContentControl
                 var keys = new[] { DoubleTapLabel(Value) };
                 if (!singleKey)
                 {
-                    try { keys = Hotkey.Parse(Value).ToDisplayString().Split('+', StringSplitOptions.TrimEntries); }
+                    try { keys = Hotkey.Parse(Value, requireModifier).ToDisplayString().Split('+', StringSplitOptions.TrimEntries); }
                     catch (FormatException) { keys = [Value]; }
                 }
                 for (int i = 0; i < keys.Length; i++)
@@ -130,7 +137,7 @@ internal sealed class ShortcutCapture : ContentControl
         }
         trigger.Content = new Viewbox { Child = row, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxWidth = 202, Height = 28, HorizontalAlignment = HorizontalAlignment.Left };
         AutomationProperties.SetName(trigger, label + ": " + (IsRecording ? L.T("正在录入") : string.IsNullOrWhiteSpace(Value) ? L.T("未设置") : singleKey ? DoubleTapLabel(Value) : Value));
-        ToolTipService.SetToolTip(trigger, L.T(IsRecording ? "按 Esc 或点击别处取消录入。" : "点击后录入快捷键"));
+        ToolTipService.SetToolTip(trigger, L.T(IsRecording ? cancelOnEscape ? "按 Esc 或点击别处取消录入。" : "再次点击或点击别处取消录入。" : "点击后录入快捷键"));
     }
 
     private static Border Keycap(string text)

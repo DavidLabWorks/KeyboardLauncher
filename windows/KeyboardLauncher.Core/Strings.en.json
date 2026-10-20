@@ -181,5 +181,12 @@
   "点击录入器后按下组合键，松开后保存。": "Click to record a shortcut. Release the keys to save.",
   "请按下单个键…": "Press a single key…",
   "点击后录入快捷键": "Click to record a shortcut",
-  "按 Esc 或点击别处取消录入。": "Press Esc or click elsewhere to cancel."
+  "按 Esc 或点击别处取消录入。": "Press Esc or click elsewhere to cancel.",
+  "再次点击或点击别处取消录入。": "Click again or elsewhere to cancel.",
+  "没有匹配的应用，可浏览选择。": "No matching apps. Browse to choose one.",
+  "正在加载应用…": "Loading apps…",
+  "请先录入要执行的快捷键。": "Record the shortcut to execute first.",
+  "双击检测规则": "Double-tap detection rules",
+  "撤销": "Undo",
+  "已移除 {0}": "Removed {0}"
 }

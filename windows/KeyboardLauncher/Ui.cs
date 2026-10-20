@@ -7,6 +7,37 @@ namespace KeyboardLauncher;
 
 internal static class Ui
 {
+    internal static TextBlock SecondaryText(string text)
+    {
+        var label = (TextBlock)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+            <TextBlock xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            """);
+        label.Text = text; return label;
+    }
+    internal static Border Card(UIElement content)
+    {
+        var card = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+            <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Padding="20" CornerRadius="12"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" />
+            """);
+        card.Child = content; return card;
+    }
+    internal static Button ActionButton(string title) => new PointerButton
+    {
+        Content = title, MinHeight = 36, FontSize = 13, Padding = new Thickness(14, 8, 14, 8),
+        CornerRadius = new CornerRadius(8), UseSystemFocusVisuals = true,
+        HorizontalContentAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+    };
+    internal static Style PickerStyle() => (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+        <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="FlyoutPresenter">
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="MaxWidth" Value="480" />
+            <Setter Property="MaxHeight" Value="560" />
+        </Style>
+        """);
     internal static Image AppIcon(double size) => new() { Source = new BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.png"))), Width = size, Height = size };
     internal static void GlassButton(Button button, bool bound)
     {
@@ -34,11 +65,11 @@ internal static class Ui
         mark.Children.Add(first); mark.Children.Add(second);
         var button = new PointerButton
         {
-            Content = mark, Width = 18, Height = 18, MinWidth = 0, MinHeight = 0,
-            Padding = new Thickness(0), CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(.75),
+            Content = mark, Width = 28, Height = 28, MinWidth = 0, MinHeight = 0,
+            Padding = new Thickness(0), CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(.75),
             HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, -6, -6, 0), Visibility = Visibility.Collapsed,
+            Margin = new Thickness(0, -8, -8, 0), Visibility = Visibility.Collapsed,
             // The keycap sits at Z=8. Keep the remove control above it, not behind it.
             Translation = new System.Numerics.Vector3(0, 0, 9), Shadow = new Microsoft.UI.Xaml.Media.ThemeShadow()
         };
@@ -66,7 +97,7 @@ internal static class Ui
         var icon = Icon(item);
         // Windows artwork often fills its bitmap, unlike the inset mac app assets.
         // Reserve 17% per side for app icons; keep template symbols at 24%.
-        var isTemplate = icon is TextBlock text && !text.Text.EnumerateRunes().Any(r => r.Value >= 0x1F000 || r.Value == 0xFE0F);
+        var isTemplate = icon is FontIcon || icon is TextBlock text && !text.Text.EnumerateRunes().Any(r => r.Value >= 0x1F000 || r.Value == 0xFE0F);
         var padding = keyWidth * (isTemplate ? .24 : .17);
         var size = keyWidth - padding * 2;
         if (icon is Image picture)
@@ -104,7 +135,13 @@ internal static class Ui
                 return picture;
             }
         }
-        return new TextBlock { Text = item == null ? "+" : !string.IsNullOrWhiteSpace(item.Icon) && item.Icon.Length <= 8 ? item.Icon : item.KeyboardShortcut != null ? "⌨" : item.ActionType == "url" ? "🌐" : "▣", FontSize = 23, HorizontalAlignment = HorizontalAlignment.Center };
+        if (item != null && !string.IsNullOrWhiteSpace(item.Icon) && item.Icon.Length <= 8)
+            return new TextBlock { Text = item.Icon, FontSize = 23, HorizontalAlignment = HorizontalAlignment.Center };
+        return new FontIcon
+        {
+            Glyph = item == null ? "\uE710" : item.KeyboardShortcut != null ? "\uE765" : item.ActionType == "url" ? "\uE774" : "\uE8A5",
+            FontSize = 23, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+        };
     }
     private static async Task LoadApplicationIcon(Image image, string path)
     {

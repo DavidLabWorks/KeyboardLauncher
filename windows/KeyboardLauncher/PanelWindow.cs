@@ -39,6 +39,10 @@ internal sealed partial class PanelWindow : Window
     private UIElement? dragSurface;
     private Native.Point dragStart;
     private PointInt32 dragWindowStart;
+    private BindingRemoval? pendingRemoval;
+    private readonly TextBlock removalStatus = Ui.SecondaryText("");
+    private readonly Button undo = Ui.ActionButton(L.T("撤销"));
+    private readonly StackPanel removalBar = new() { Orientation = Orientation.Horizontal, Spacing = 12, Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center };
     private int page;
     private int renderedPage = -1;
     private string renderedLanguage = "";
@@ -102,14 +106,24 @@ internal sealed partial class PanelWindow : Window
         settings.Click += (_, _) => app.OpenSettings(); Grid.SetColumn(settings, 1); header.Children.Add(settings);
         root.Children.Add(header); Grid.SetRow(rows, 1); root.Children.Add(rows);
         var footer = new Grid(); footer.ColumnDefinitions.Add(new()); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        var footerHint = new TextBlock { Text = L.T("⌨  点击空键绑定 · 右键编辑 · 按键或点击启动"), Opacity = .65, FontSize = 11, VerticalAlignment = VerticalAlignment.Center }; footer.Children.Add(footerHint);
+        var footerHint = new TextBlock { Text = L.T("⌨  点击空键绑定 · 右键编辑 · 按键或点击启动"), Opacity = .75, FontSize = 12, VerticalAlignment = VerticalAlignment.Center }; footer.Children.Add(footerHint);
+        removalStatus.MaxWidth = 340; removalStatus.TextWrapping = TextWrapping.NoWrap;
+        removalStatus.TextTrimming = TextTrimming.CharacterEllipsis;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(removalStatus, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+        removalBar.Children.Add(removalStatus); removalBar.Children.Add(undo); footer.Children.Add(removalBar);
+        undo.Click += async (_, _) =>
+        {
+            if (app.BindingSavePending) return;
+            try { UndoRemoval(app.Save); }
+            catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); }
+        };
         var paging = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         previous = new PointerButton { Content = "←" }; next = new PointerButton { Content = "→" };
         Ui.GlassButton(previous, false); Ui.GlassButton(next, false);
         previous.Click += (_, _) => ChangePage(-1); next.Click += (_, _) => ChangePage(1);
         ToolTipService.SetToolTip(previous, L.T("上一页（←）")); ToolTipService.SetToolTip(next, L.T("下一页（→）"));
         paging.Children.Add(previous); paging.Children.Add(pageLabel); paging.Children.Add(next);
-        var closeHint = new TextBlock { Text = L.T("Esc  关闭"), FontSize = 11, Opacity = .65, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center }; paging.Children.Add(closeHint);
+        var closeHint = new TextBlock { Text = L.T("Esc  关闭"), FontSize = 12, Opacity = .75, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center }; paging.Children.Add(closeHint);
         Grid.SetColumn(paging, 1); footer.Children.Add(paging); Grid.SetRow(footer, 2); root.Children.Add(footer);
         root.Width = 1040; root.Height = 560;
         root.Children.Insert(0, focusHost);
@@ -128,6 +142,12 @@ internal sealed partial class PanelWindow : Window
         {
             root.Language = app.Config.Language;
             ((TextBlock)title.Children[1]).Text = App.DisplayName;
+            if (pendingRemoval != null && !pendingRemoval.CanRestore(app.Config)) pendingRemoval = null;
+            removalBar.Visibility = pendingRemoval != null ? Visibility.Visible : Visibility.Collapsed;
+            footerHint.Visibility = pendingRemoval != null ? Visibility.Collapsed : Visibility.Visible;
+            undo.Content = L.T("撤销");
+            removalStatus.Text = pendingRemoval != null ? L.F("已移除 {0}", pendingRemoval.Name) : "";
+            ToolTipService.SetToolTip(removalStatus, removalStatus.Text);
             footerHint.Text = L.T("⌨  点击空键绑定 · 右键编辑 · 按键或点击启动");
             closeHint.Text = L.T("Esc  关闭");
             ToolTipService.SetToolTip(settings, L.T("设置"));
@@ -186,9 +206,12 @@ internal sealed partial class PanelWindow : Window
         var menu = new MenuFlyout(); var edit = new MenuFlyoutItem();
         edit.Click += async (_, _) => await Edit(slot); menu.Items.Add(edit); button.ContextFlyout = menu;
         var hitArea = new Grid(); hitArea.Children.Add(button);
-        var dropMark = new Border { BorderBrush = new SolidColorBrush(Colors.DodgerBlue), BorderThickness = new Thickness(2),
-            CornerRadius = new CornerRadius(16), IsHitTestVisible = false, Visibility = Visibility.Collapsed,
-            Translation = new System.Numerics.Vector3(0, 0, 10) };
+        var dropMark = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+            <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" BorderThickness="2"
+                    CornerRadius="16" IsHitTestVisible="False" Visibility="Collapsed" />
+            """);
+        dropMark.Translation = new System.Numerics.Vector3(0, 0, 10);
         hitArea.Children.Add(dropMark);
         keyCaps[slot] = cap; dropMarks[slot] = dropMark;
         AttachBindingDrag(cap, slot, button);
@@ -196,12 +219,12 @@ internal sealed partial class PanelWindow : Window
         remove.Click += async (_, _) =>
         {
             if (app.BindingSavePending) return;
-            try { app.Save(app.Config.Bind(slot, null)); }
+            try { RemoveBinding(slot, app.Save); }
             catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); }
         };
         hitArea.PointerEntered += (_, _) => { if (current != null && bindingSurface == null) remove.Visibility = Visibility.Visible; };
         hitArea.PointerExited += (_, _) => remove.Visibility = Visibility.Collapsed;
-        var caption = new TextBlock { FontSize = 11, Height = 14, TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, Opacity = .75 };
+        var caption = new TextBlock { FontSize = 12, Height = 16, TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, Opacity = .75 };
         var cell = new StackPanel { Spacing = 5, Width = 70 };
         cell.Children.Add(hitArea); cell.Children.Add(caption);
         refreshKeys.Add(languageChanged =>
@@ -228,10 +251,28 @@ internal sealed partial class PanelWindow : Window
             initialized = true;
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"{key} · {current?.Name ?? L.T("未绑定")}");
             edit.Text = current == null ? L.T("绑定动作…") : L.T("编辑绑定…");
+            ToolTipService.SetToolTip(button, current?.Name ?? L.T("绑定动作…"));
+            ToolTipService.SetToolTip(caption, current?.Name);
             ToolTipService.SetToolTip(remove, L.T("移除绑定"));
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(remove, L.F("解除 {0} 的绑定", key));
         });
         return cell;
+    }
+
+    internal bool CanUndoRemoval => pendingRemoval != null && removalBar.Visibility == Visibility.Visible;
+    internal void RemoveBinding(int slot, Action<LauncherConfig> persist)
+    {
+        var item = app.Config.At(slot);
+        if (item == null) return;
+        var removal = new BindingRemoval(slot, item);
+        persist(app.Config.Bind(slot, null));
+        pendingRemoval = removal; Refresh();
+    }
+    internal void UndoRemoval(Action<LauncherConfig> persist)
+    {
+        var restored = pendingRemoval?.Restore(app.Config);
+        if (restored != null) persist(restored);
+        pendingRemoval = null; Refresh();
     }
 
     internal object[] KeyVisualsForSmokeTest() => rows.Children.Cast<StackPanel>()

@@ -5,6 +5,30 @@ void Check(string name, Action check) { check(); Console.WriteLine($"PASS {name}
 void Assert(bool condition) { if (!condition) throw new Exception("Assertion failed"); }
 void Throws(Action action) { try { action(); } catch (FormatException) { return; } throw new Exception("Expected FormatException"); }
 
+Check("Undo restores a removed snapshot without overwriting a newer binding or unrelated changes", () =>
+{
+    var item = new Launcher { Name = "Original", Exec = "cmd.exe", Arguments = "/c echo test", Icon = "A" };
+    var config = new LauncherConfig { Launchers = [item, new() { Name = "Other", Exec = "cmd.exe" }] };
+    var undo = new BindingRemoval(0, item);
+    var removed = config.Bind(0, null).Bind(1, new() { Name = "Edited", Exec = "explorer.exe" });
+    item.Name = "Mutated after capture";
+    var restored = undo.Restore(removed)!;
+    Assert(restored.At(0)!.Name == "Original" && restored.At(0)!.Arguments == "/c echo test");
+    Assert(restored.At(1)!.Name == "Edited");
+    Assert(undo.Restore(restored) == null);
+    Assert(undo.Restore(removed.Bind(0, new() { Name = "Replacement", Exec = "cmd.exe" })) == null);
+    var lastPage = new BindingRemoval(76, new() { Name = "Last page", Exec = "cmd.exe" });
+    Assert(lastPage.Restore(removed)!.At(76)!.Name == "Last page");
+});
+
+Check("Shell display name resources follow Windows language, with an English fallback", () =>
+{
+    foreach (var language in new[] { "zh-CN", "zh-TW", "zh-HK", "ZH-cn", "zh" })
+        Assert(LocalInstallation.ShellResourceFileName(language) == "ShellNamesChinese.dll");
+    foreach (var language in new string?[] { "en-US", "en-GB", "fr-FR", "", null })
+        Assert(LocalInstallation.ShellResourceFileName(language) == "ShellNamesEnglish.dll");
+});
+
 Check("Missing release events recover without misclassifying real holds or suppressed keys", () =>
 {
     foreach (uint lostKey in new uint[] { 0x41, 0xA2 })

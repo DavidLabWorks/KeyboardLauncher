@@ -10,6 +10,9 @@ public static class LocalInstallation
     public static string ExecutablePath => Path.Combine(DirectoryPath, "KeyboardLauncher.exe");
     public static string StartupCommand => $"\"{ExecutablePath}\" --background";
 
+    public static string ShellResourceFileName(string? systemLanguage)
+        => systemLanguage?.Split('-')[0].Equals("zh", StringComparison.OrdinalIgnoreCase) == true ? "ShellNamesChinese.dll" : "ShellNamesEnglish.dll";
+
     public static bool IsCanonicalExecutable(string? executable)
         => !string.IsNullOrWhiteSpace(executable) &&
             string.Equals(Path.GetFullPath(executable), ExecutablePath, StringComparison.OrdinalIgnoreCase);

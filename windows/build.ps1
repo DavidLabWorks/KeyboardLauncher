@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 if ($RunArguments.Count -and -not $Run) { throw '-RunArguments requires -Run.' }
 $project = Join-Path $PSScriptRoot 'KeyboardLauncher/KeyboardLauncher.csproj'
 $checks = Join-Path $PSScriptRoot 'KeyboardLauncher.Checks/KeyboardLauncher.Checks.csproj'
+& (Join-Path $PSScriptRoot 'check-shell-names.ps1')
 dotnet run --project $checks --configuration Release
 if ($LASTEXITCODE -ne 0) { throw 'Core checks failed.' }
 if ($Publish) {

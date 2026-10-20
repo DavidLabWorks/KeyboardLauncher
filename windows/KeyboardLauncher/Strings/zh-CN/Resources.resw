@@ -4,5 +4,5 @@
   <resheader name="version"><value>2.0</value></resheader>
   <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
   <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
-  <data name="AppDisplayName" xml:space="preserve"><value>指间 · Keyboard Launcher</value></data>
+  <data name="AppDisplayName" xml:space="preserve"><value>指间</value></data>
 </root>
