@@ -168,3 +168,11 @@ Windows 客户端默认使用 English。在 General → Language 可通过分段
 - 原 EXE 版如已设置开机启动，迁移前先退出并关闭其开机启动，再卸载旧程序，避免两个发行渠道争用快捷键。旧配置会复制到商店版，原文件保留。
 
 参考：[手动打包桌面应用](https://learn.microsoft.com/windows/msix/desktop/desktop-to-uwp-manual-conversion)、[试用授权](https://learn.microsoft.com/windows/uwp/monetize/implement-a-trial-version-of-your-app)、[商店更新](https://learn.microsoft.com/windows/apps/package-and-deploy/package-updates-from-store)。
+
+## 双击失效的只读诊断
+
+本地版本运行时，可以另开进程执行固定安装目录下的 `KeyboardLauncher.exe --input-status`。这不会显示或关闭面板，也不会重启主进程；结果写入 `%LOCALAPPDATA%\KeyboardLauncher\input-status.json`。诊断通道只允许同一 Windows 用户、同一会话访问。
+
+报告包含监听事件计数、距上次回调时间、按键总数、残留状态数量、录入/暂停状态和最近一次修饰键判断；不记录文字、普通按键历史或其他应用标题。失效时先保留运行实例并采集状态，避免重启后丢失线索。
+
+检测会在处理新事件前校对未被拦截的按键状态，恢复漏掉松开事件后的双击识别；被录入拦截的按键保留独立处理，避免误判长按。键盘回调释放状态锁后才调用后续钩子。`--control-smoke-test` 额外覆盖普通键和 Control 漏松开事件的恢复。

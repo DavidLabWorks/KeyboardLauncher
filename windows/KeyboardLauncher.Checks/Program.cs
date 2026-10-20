@@ -5,6 +5,32 @@ void Check(string name, Action check) { check(); Console.WriteLine($"PASS {name}
 void Assert(bool condition) { if (!condition) throw new Exception("Assertion failed"); }
 void Throws(Action action) { try { action(); } catch (FormatException) { return; } throw new Exception("Expected FormatException"); }
 
+Check("Missing release events recover without misclassifying real holds or suppressed keys", () =>
+{
+    foreach (uint lostKey in new uint[] { 0x41, 0xA2 })
+    {
+        var held = new HashSet<uint> { lostKey };
+        var detector = new DoubleModifierTap();
+        foreach (var (isDown, time) in new[] { (true, 0L), (false, 60L), (true, 160L), (false, 220L) })
+        {
+            if (PressedKeyState.ReconcileBeforeEvent(held, new HashSet<uint>(), 0xA2, isDown, _ => !isDown)) detector.Reset();
+            bool repeat = isDown && !held.Add(0xA2);
+            if (!isDown) held.Remove(0xA2);
+            bool fired = detector.Handle(0xA2, isDown, time, repeat, held.Any(key => key != 0xA2));
+            Assert(fired == (time == 220));
+        }
+    }
+    var physicalChord = new HashSet<uint> { 0x41, 0xA2 };
+    Assert(!PressedKeyState.ReconcileBeforeEvent(physicalChord, new HashSet<uint>(), 0xA2, true, _ => true));
+    Assert(physicalChord.Count == 2);
+    var suppressed = new HashSet<uint> { 0xA2 };
+    Assert(!PressedKeyState.ReconcileBeforeEvent(suppressed, suppressed, 0x41, true, _ => false));
+    Assert(suppressed.Contains(0xA2));
+    var release = new HashSet<uint> { 0xA2 };
+    Assert(!PressedKeyState.ReconcileBeforeEvent(release, new HashSet<uint>(), 0xA2, false, _ => false));
+    Assert(release.Contains(0xA2));
+});
+
 Check("Local versions share one installation, startup target and permanent tray identity", () =>
 {
     Assert(LocalInstallation.TrayIconGuid == new Guid("1fdf1ec1-68d7-4f1e-8279-091a7cc1a2d7"));

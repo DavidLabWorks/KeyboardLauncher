@@ -12,6 +12,7 @@ public partial class App : Application
     private PanelWindow? panel;
     private SettingsWindow? settings;
     private DesktopIntegration? desktop;
+    private InputStatusChannel? inputStatus;
     private TrayMenuWindow? trayMenu;
     internal ConfigStore Store { get; } = StoreIntegration.IsPackaged
         ? new ConfigStore(Path.Combine(Windows.Storage.ApplicationData.Current.LocalFolder.Path, "config.json"),
@@ -50,6 +51,19 @@ public partial class App : Application
             Environment.ExitCode = 3; Exit(); return;
         }
         if (installationCheck) { Exit(); return; }
+        if (Environment.GetCommandLineArgs().Contains("--input-status"))
+        {
+            var directory = Path.GetDirectoryName(Store.FilePath)!;
+            Directory.CreateDirectory(directory);
+            var report = Path.Combine(directory, "input-status.json");
+            try { File.WriteAllText(report, await InputStatusChannel.ReadAsync()); }
+            catch (Exception ex)
+            {
+                File.WriteAllText(report, System.Text.Json.JsonSerializer.Serialize(new { Error = ex.Message }));
+                Environment.ExitCode = 1;
+            }
+            Exit(); return;
+        }
         instance = new Mutex(true, "Local\\KeyboardLauncher.Windows." + Environment.UserName, out bool created);
         if (!created)
         {
@@ -72,6 +86,7 @@ public partial class App : Application
             desktop.PanelKeyPressed += panel.HandleNativeKey;
             try { desktop.Configure(Config); }
             catch (Exception ex) { StartupError = ex.Message; }
+            inputStatus = new InputStatusChannel(desktop.InputStatus);
             var startupActivation = StoreIntegration.IsPackaged && Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent()
                 .GetActivatedEventArgs().Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.StartupTask;
             if (!startupActivation && !Environment.GetCommandLineArgs().Contains("--background")) panel.Show();
@@ -131,8 +146,9 @@ public partial class App : Application
         finally { bindingSave = null; }
     }
 
+    internal string InputStatusForSmokeTest() => desktop!.InputStatus();
     internal bool HasPressedKeys => desktop?.IsAnyKeyDown == true;
-    internal void BeginShortcutRecording(nint window, Action<Hotkey> callback, bool modifierOnly = false) => desktop?.BeginRecording(window, callback, modifierOnly);
+    internal void BeginShortcutRecording(nint window, Action<Hotkey> callback, bool modifierOnly = false, Action? cancelled = null) => desktop?.BeginRecording(window, callback, modifierOnly, cancelled);
     internal void EndShortcutRecording(nint window) => desktop?.EndRecording(window);
     internal void SuspendHotkeys(bool suspend) { if (desktop != null) desktop.Suspended = suspend; }
 
@@ -280,7 +296,22 @@ public partial class App : Application
             await Task.Delay(300);
             if (count - beforeStall != 1)
                 throw new InvalidOperationException($"Hook did not survive UI stall: {string.Join(", ", observations)}");
-            File.WriteAllText(report, count == 8 ? "PASS: left/right Control, Alt, Shift and Space each toggle once; double Control survives a 1.6-second UI stall." : $"FAIL: expected eight toggles, got {count}. {string.Join(", ", observations)}");
+            foreach (var lostKey in new uint[] { 0x41, 0xA2 })
+            {
+                var beforeRecovery = count;
+                desktop.Configure(Config with { DoubleTapKey = "leftControl" });
+                desktop.SimulateLostKeyUpForSmokeTest(lostKey);
+                var inputs = new uint[] { 0, 2, 0, 2 }.Select(flags => new Native.Input
+                {
+                    Type = 1, Data = new() { Keyboard = new() { Key = 0xA2, Flags = flags, ExtraInfo = 0x54455354 } }
+                }).ToArray();
+                if (Native.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<Native.Input>()) != inputs.Length)
+                    throw new InvalidOperationException("Lost-release test input rejected");
+                await Task.Delay(300);
+                if (count - beforeRecovery != 1)
+                    throw new InvalidOperationException($"Did not recover after missing release of 0x{lostKey:X}: {desktop.InputStatus()}");
+            }
+            File.WriteAllText(report, count == 10 ? "PASS: all double-tap keys, 1.6-second UI stall, missing ordinary-key release and missing Control release recovered." : $"FAIL: expected ten toggles, got {count}. {string.Join(", ", observations)}");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { desktop.Toggle -= Count; Quit(); }
@@ -403,6 +434,7 @@ public partial class App : Application
     internal async void Quit()
     {
         if (bindingSave != null) { try { await bindingSave; } catch { } }
+        inputStatus?.Dispose(); inputStatus = null;
         desktop?.Dispose(); desktop = null;
         activationWait?.Unregister(null); activationEvent?.Dispose();
         trayMenu?.Close(); settings?.Close(); panel?.Close();

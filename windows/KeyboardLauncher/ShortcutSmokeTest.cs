@@ -14,7 +14,8 @@ internal static class ShortcutSmokeTest
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(probe);
         var recorded = new List<Hotkey>();
         int delivered = 0;
-        input.KeyDown += (_, _) => delivered++;
+        var deliveredKeys = new List<string>();
+        input.KeyDown += (_, e) => { delivered++; deliveredKeys.Add(e.Key.ToString()); };
         var path = Path.Combine(Path.GetTempPath(), "KeyboardLauncher-shortcut-" + Guid.NewGuid() + ".json");
         try
         {
@@ -42,7 +43,7 @@ internal static class ShortcutSmokeTest
             Send(0xA2, 0x41); Send(0xA4, 0xA0); Send(0x41);
             await Task.Delay(150);
             Require(modifiers.Count == 6, "chord or ordinary key accepted as double-tap key");
-            Require(delivered == 0, "double-tap recording leaked keys");
+            Require(delivered == 0, $"double-tap recording leaked keys: {string.Join(",", deliveredKeys)}; {app.InputStatusForSmokeTest()}");
             app.EndShortcutRecording(hwnd);
             var doubleTapField = new TextBox();
             var ordinaryField = new TextBox();
@@ -69,6 +70,48 @@ internal static class ShortcutSmokeTest
             }
             selected = null; Send(0xA4, 0x20); await Task.Delay(150);
             Require(selected == null, "Alt+Space accepted as a single double-tap key");
+            string? capturedShortcut = "ctrl+shift+space", capturedSingle = "leftControl";
+            int shortcutSaves = 0;
+            var shortcutCapture = new ShortcutCapture(app, probe, false, "Shortcut", capturedShortcut, value =>
+            {
+                shortcutSaves++; return capturedShortcut = value;
+            });
+            var singleCapture = new ShortcutCapture(app, probe, true, "Double tap", capturedSingle, value => capturedSingle = value);
+            var outside = new Button { Content = "Outside recorder" };
+            var captureFields = new StackPanel();
+            captureFields.Children.Add(shortcutCapture); captureFields.Children.Add(singleCapture); captureFields.Children.Add(outside);
+            probe.Content = captureFields;
+            await Task.Delay(100);
+            Native.ActivatePanel(hwnd);
+            ((Button)shortcutCapture.Content).Focus(FocusState.Programmatic);
+            Require(!shortcutCapture.IsRecording, "focus alone started the recorder");
+            shortcutCapture.StartRecording();
+            var held = new ushort[] { 0xA2, 0xA0, 0x77 }.Select(key => new Native.Input
+            {
+                Type = 1, Data = new() { Keyboard = new() { Key = key, ExtraInfo = 0x54455354 } }
+            }).ToArray();
+            Native.SendInput((uint)held.Length, held, Marshal.SizeOf<Native.Input>());
+            await Task.Delay(100);
+            Require(shortcutCapture.IsRecording && shortcutSaves == 0, "recording ended before keys were released");
+            var released = held.Reverse().Select(item => { item.Data.Keyboard.Flags = 2; return item; }).ToArray();
+            Native.SendInput((uint)released.Length, released, Marshal.SizeOf<Native.Input>());
+            await Task.Delay(150);
+            Require(!shortcutCapture.IsRecording && shortcutSaves == 1 && capturedShortcut == "ctrl+shift+f8", "shortcut button did not save and stop");
+            singleCapture.StartRecording(); Send(0xA4, 0xA4); await Task.Delay(150);
+            Require(!singleCapture.IsRecording && capturedSingle == "leftAlt", "single-key button did not record a held modifier");
+            foreach (var capture in new[] { shortcutCapture, singleCapture })
+            {
+                capture.StartRecording(); Send(0x1B); await Task.Delay(100);
+                Require(!capture.IsRecording, "Escape did not cancel the recorder");
+            }
+            Require(shortcutSaves == 1 && capturedSingle == "leftAlt", "cancel changed the saved shortcut");
+            shortcutCapture.StartRecording(); outside.Focus(FocusState.Programmatic); await Task.Delay(100);
+            Require(!shortcutCapture.IsRecording, "focus loss did not cancel the recorder");
+            singleCapture.StartRecording(); panel.Show(); await Task.Delay(100); panel.Hide(false);
+            Native.ActivatePanel(hwnd); await Task.Delay(100);
+            Require(!singleCapture.IsRecording, "reactivating a window resumed recording");
+            shortcutCapture.Clear(); singleCapture.Clear();
+            Require(capturedShortcut == null && capturedSingle == null, "clear did not persist empty values");
             probe.Content = input;
             input.Focus(FocusState.Programmatic);
             app.EndShortcutRecording(hwnd); app.SuspendHotkeys(false);
@@ -84,7 +127,7 @@ internal static class ShortcutSmokeTest
             Require(Native.GetForegroundWindow() == hwnd, "previous app focus not restored");
             Require(input.SelectedText == input.Text && delivered > 0, "saved shortcut did not execute");
             Require(!app.HasPressedKeys && Native.Modifiers == 0, "stuck execution modifiers");
-            return "PASS: Ctrl+A and Alt+F4 captured without executing; all six double-tap modifier sides recorded; actual fields record held Alt and Space, persist selections, and reject chords; isolated save/reload; real launcher dispatch restores target focus and executes Ctrl+A; modifiers released.";
+            return "PASS: Ctrl+A and Alt+F4 captured without executing; all six double-tap modifier sides recorded; actual fields record held Alt and Space, persist selections, and reject chords; recorder buttons save on release, stop, cancel on Esc/focus loss, stay idle on reactivation, and clear; isolated save/reload; real launcher dispatch restores target focus and executes Ctrl+A; modifiers released.";
         }
         finally
         {

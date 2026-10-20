@@ -370,47 +370,31 @@ internal sealed class SettingsWindow : Window
     }
     private void Shortcuts()
     {
-        var shortcut = new TextBox { Text = app.Config.Shortcut, Width = 200, PlaceholderText = L.T("未设置"), FontSize = 13 };
-        ShortcutRecorder.Attach(app, shortcut, this, true);
-        shortcut.LostFocus += (_, _) => { if (shortcut.Text.Trim() != app.Config.Shortcut) Save(app.Config with { Shortcut = shortcut.Text.Trim() }); };
-        var clear = SettingsButton(L.T("清空")); clear.IsEnabled = !string.IsNullOrWhiteSpace(shortcut.Text);
-        shortcut.TextChanged += (_, _) => clear.IsEnabled = !string.IsNullOrWhiteSpace(shortcut.Text);
-        clear.Click += (_, _) =>
+        var shortcut = new ShortcutCapture(app, this, false, L.T("键盘快捷键"), app.Config.Shortcut, value =>
         {
-            app.EndShortcutRecording(WinRT.Interop.WindowNative.GetWindowHandle(this));
-            shortcut.Text = "";
-            Save(app.Config with { Shortcut = "" });
-        };
+            Save(app.Config with { Shortcut = value ?? "" });
+            return app.Config.Shortcut;
+        });
+        var clear = SettingsButton(L.T("清空"));
+        void RefreshShortcut() => clear.IsEnabled = !string.IsNullOrWhiteSpace(shortcut.Value);
+        shortcut.ValueChanged += RefreshShortcut;
+        clear.Click += (_, _) => shortcut.Clear();
+        RefreshShortcut();
         var shortcutRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         shortcutRow.Children.Add(shortcut); shortcutRow.Children.Add(clear);
-        string DoubleTapLabel(string? value) => L.T(value switch
+        var doubleTap = new ShortcutCapture(app, this, true, L.T("双击按键"), app.Config.DoubleTapKey, value =>
         {
-            "leftControl" => "左 Ctrl", "rightControl" => "右 Ctrl",
-            "leftAlt" => "左 Alt", "rightAlt" => "右 Alt",
-            "leftShift" => "左 Shift", "rightShift" => "右 Shift",
-            "space" => "Space",
-            "control" => "Ctrl（任意一侧）", "alt" => "Alt（任意一侧）", "shift" => "Shift（任意一侧）",
-            _ => ""
+            Save(app.Config with { DoubleTapKey = value });
+            return app.Config.DoubleTapKey;
         });
-        var doubleTap = new TextBox { Text = DoubleTapLabel(app.Config.DoubleTapKey), Width = 200, FontSize = 13 };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(doubleTap, L.T("双击按键"));
-        var clearDoubleTap = SettingsButton(L.T("清空")); clearDoubleTap.IsEnabled = app.Config.DoubleTapKey != null;
-        ShortcutRecorder.AttachDoubleTap(app, doubleTap, this, value =>
-        {
-            if (value != app.Config.DoubleTapKey) Save(app.Config with { DoubleTapKey = value });
-            doubleTap.Text = DoubleTapLabel(app.Config.DoubleTapKey);
-            clearDoubleTap.IsEnabled = app.Config.DoubleTapKey != null;
-        });
-        clearDoubleTap.Click += (_, _) =>
-        {
-            app.EndShortcutRecording(WinRT.Interop.WindowNative.GetWindowHandle(this));
-            Save(app.Config with { DoubleTapKey = null });
-            doubleTap.Text = DoubleTapLabel(app.Config.DoubleTapKey);
-            clearDoubleTap.IsEnabled = app.Config.DoubleTapKey != null;
-        };
+        var clearDoubleTap = SettingsButton(L.T("清空"));
+        void RefreshDoubleTap() => clearDoubleTap.IsEnabled = !string.IsNullOrWhiteSpace(doubleTap.Value);
+        doubleTap.ValueChanged += RefreshDoubleTap;
+        clearDoubleTap.Click += (_, _) => doubleTap.Clear();
+        RefreshDoubleTap();
         var doubleTapRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         doubleTapRow.Children.Add(doubleTap); doubleTapRow.Children.Add(clearDoubleTap);
-        Section(L.T("快捷键"), Row(L.T("键盘快捷键"), L.T("点击输入框后直接按下组合键。"), shortcutRow), Row(L.T("双击按键"), L.T("点击输入框后按下 Ctrl、Alt、Shift 或 Space；修饰键区分左右。"), doubleTapRow));
+        Section(L.T("快捷键"), Row(L.T("键盘快捷键"), L.T("点击录入器后按下组合键，松开后保存。"), shortcutRow), Row(L.T("双击按键"), L.T("点击录入器后按下 Ctrl、Alt、Shift 或 Space；修饰键区分左右。"), doubleTapRow));
         detail.Children.Add(Note(L.T("连续按两次录入的按键以显示或隐藏；清空后关闭。")));
         detail.Children.Add(Note(L.T("仅响应所选侧的按键；选择任意一侧时，两次须为同一侧。长按、组合键和鼠标点击会取消检测。")));
     }

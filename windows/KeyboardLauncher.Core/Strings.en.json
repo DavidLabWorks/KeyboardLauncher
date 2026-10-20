@@ -173,5 +173,13 @@
   "浏览应用…": "Browse apps…",
   "应用路径": "Application path",
   "文件或文件夹不存在，请重新选择。": "The file or folder no longer exists. Choose it again.",
-  "请先使用 windows/build.ps1 -Run 或 windows/deploy-local.ps1 部署此版本。所有本地版本共用运行目录：{0}": "Deploy this build with windows/build.ps1 -Run or windows/deploy-local.ps1 first. All local versions share this run directory: {0}"
+  "请先使用 windows/build.ps1 -Run 或 windows/deploy-local.ps1 部署此版本。所有本地版本共用运行目录：{0}": "Deploy this build with windows/build.ps1 -Run or windows/deploy-local.ps1 first. All local versions share this run directory: {0}",
+  "点击录入": "Record shortcut",
+  "点击录入器后按下 Ctrl、Alt、Shift 或 Space；修饰键区分左右。": "Click to record Ctrl, Alt, Shift, or Space. Left and right modifiers are distinct.",
+  "请按下组合键…": "Press a shortcut…",
+  "正在录入": "Recording",
+  "点击录入器后按下组合键，松开后保存。": "Click to record a shortcut. Release the keys to save.",
+  "请按下单个键…": "Press a single key…",
+  "点击后录入快捷键": "Click to record a shortcut",
+  "按 Esc 或点击别处取消录入。": "Press Esc or click elsewhere to cancel."
 }

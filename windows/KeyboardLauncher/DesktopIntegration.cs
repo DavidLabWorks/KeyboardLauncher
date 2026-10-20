@@ -22,13 +22,17 @@ internal sealed class DesktopIntegration : IDisposable
     private int hotkeyId = 1;
     private nint recordingWindow;
     private Action<Hotkey>? recordingCallback;
+    private Action? recordingCancelled;
     private bool recordingModifierOnly;
     private uint recordingModifier;
-    public void BeginRecording(nint window, Action<Hotkey> callback, bool modifierOnly = false)
+    private long keyboardEvents, lastKeyboardEventAt = Environment.TickCount64;
+    private int repairedStates;
+    private string lastModifierDecision = "waiting";
+    public void BeginRecording(nint window, Action<Hotkey> callback, bool modifierOnly = false, Action? cancelled = null)
     {
         lock (inputState)
         {
-            recordingWindow = window; recordingCallback = callback; recordingModifierOnly = modifierOnly; recordingModifier = 0; doubleTap.Reset();
+            recordingWindow = window; recordingCallback = callback; recordingCancelled = cancelled; recordingModifierOnly = modifierOnly; recordingModifier = 0; doubleTap.Reset();
         }
     }
     public void EndRecording(nint window)
@@ -36,7 +40,10 @@ internal sealed class DesktopIntegration : IDisposable
         lock (inputState)
         {
             if (recordingWindow != window) return;
-            recordingCallback = null; recordingWindow = 0; recordingModifier = 0; doubleTap.Reset();
+            // Suppressed presses never entered OS state. Do not carry them
+            // into normal double-tap detection after recording loses focus.
+            down.ExceptWith(swallowed);
+            recordingCallback = null; recordingCancelled = null; recordingWindow = 0; recordingModifier = 0; doubleTap.Reset();
         }
     }
     public bool IsAnyKeyDown { get { lock (inputState) return down.Count != 0; } }
@@ -106,7 +113,33 @@ internal sealed class DesktopIntegration : IDisposable
 
     private nint KeyboardMessage(int code, nint wParam, nint lParam)
     {
-        lock (inputState) return KeyboardMessageCore(code, wParam, lParam);
+        if (code < 0) return Native.CallNextHookEx(0, code, wParam, lParam);
+        Interlocked.Increment(ref keyboardEvents);
+        Volatile.Write(ref lastKeyboardEventAt, Environment.TickCount64);
+        nint handled;
+        lock (inputState) handled = KeyboardMessageCore(code, wParam, lParam);
+        // Other hooks can wait for their UI threads. Never hold our state
+        // lock across that call: our UI also needs it to update settings.
+        return handled != 0 ? handled : Native.CallNextHookEx(0, code, wParam, lParam);
+    }
+
+    internal string InputStatus()
+    {
+        lock (inputState)
+            return System.Text.Json.JsonSerializer.Serialize(new
+            {
+                DoubleTapKey = doubleTap.Modifier, Suspended = suspended,
+                Recording = recordingCallback != null, HeldKeyCount = down.Count,
+                StaleUnsuppressedKeyCount = down.Count(key => !swallowed.Contains(key) && !Native.Down((int)key)),
+                KeyboardEventCount = Interlocked.Read(ref keyboardEvents),
+                LastKeyboardEventAgeMs = Environment.TickCount64 - Volatile.Read(ref lastKeyboardEventAt),
+                RepairedStateCount = repairedStates, LastModifierDecision = lastModifierDecision
+            });
+    }
+
+    internal void SimulateLostKeyUpForSmokeTest(uint key)
+    {
+        lock (inputState) down.Add(key);
     }
 
     private void QueueRecording(Action<Hotkey> callback, Hotkey captured)
@@ -122,15 +155,14 @@ internal sealed class DesktopIntegration : IDisposable
 
     private nint KeyboardMessageCore(int code, nint wParam, nint lParam)
     {
-        if (code < 0) return Native.CallNextHookEx(0, code, wParam, lParam);
         var key = Marshal.PtrToStructure<Native.KeyboardData>(lParam);
         // Ignore our own SendInput events, not all injected input: VM / remote
         // keyboard drivers may also mark a user's physical keystrokes injected.
-        if (key.ExtraInfo == 0x4C504943) return Native.CallNextHookEx(0, code, wParam, lParam);
+        if (key.ExtraInfo == 0x4C504943) return 0;
         // Alt menu suppression tools can insert VK_NONAME. It is not a
         // physical chord key and must not cancel an otherwise isolated Alt tap.
-        if (key.Key == 0xFC) return Native.CallNextHookEx(0, code, wParam, lParam);
-        if (key.Key == 0x07 && (key.Flags & 0x10) != 0) return Native.CallNextHookEx(0, code, wParam, lParam);
+        if (key.Key == 0xFC || (key.Key == 0x07 && (key.Flags & 0x10) != 0))
+            return recordingCallback != null && Native.GetForegroundWindow() == recordingWindow ? 1 : 0;
         // Some virtual/remote keyboards report generic modifier VKs.
         key.Key = key.Key switch
         {
@@ -140,6 +172,11 @@ internal sealed class DesktopIntegration : IDisposable
             _ => key.Key
         };
         bool isDown = (uint)wParam is 0x100 or 0x104;
+        if (PressedKeyState.ReconcileBeforeEvent(down, swallowed, key.Key, isDown, pressed => Native.Down((int)pressed)))
+        {
+            repairedStates++;
+            doubleTap.Reset();
+        }
         bool repeat = isDown && !down.Add(key.Key);
         if (!isDown) down.Remove(key.Key);
         // Capture before normal shortcuts, including while the launcher is suspended.
@@ -150,6 +187,15 @@ internal sealed class DesktopIntegration : IDisposable
             if (isDown)
             {
                 swallowed.Add(key.Key);
+                if (key.Key == 0x1B && down.Count == 1 && recordingCancelled is { } cancel)
+                {
+                    dispatcher.TryEnqueue(() =>
+                    {
+                        lock (inputState) { if (recordingCallback != callback) return; }
+                        cancel();
+                    });
+                    return 1;
+                }
                 // Repeated key-downs from a held key must not cancel single-key recording.
                 if (recordingModifierOnly && !repeat)
                     recordingModifier = down.Count == 1 && key.Key is (>= 0xA0 and <= 0xA5 or 0x20) ? key.Key : 0;
@@ -173,7 +219,7 @@ internal sealed class DesktopIntegration : IDisposable
             }
             // Let releases through for keys pressed before recording began.
             if (swallowed.Remove(key.Key)) return 1;
-            return Native.CallNextHookEx(0, code, wParam, lParam);
+            return 0;
         }
         // Pair swallowed key-downs with their releases even if settings changed meanwhile.
         if (!isDown && swallowed.Remove(key.Key)) return 1;
@@ -189,6 +235,8 @@ internal sealed class DesktopIntegration : IDisposable
             uint selectedModifier = doubleTap.Modifier switch { "control" or "leftControl" or "rightControl" => 2u, "alt" or "leftAlt" or "rightAlt" => 1u, "shift" or "leftShift" or "rightShift" => 4u, _ => 0u };
             bool other = (Native.Modifiers & ~selectedModifier) != 0 || down.Any(pressed => pressed != key.Key);
             var fired = doubleTap.Handle(key.Key, isDown, key.Time, repeat, other);
+            if (key.Key is >= 0xA0 and <= 0xA5 or 0x20)
+                lastModifierDecision = $"repeat={repeat} other={other} fired={fired}";
             DoubleTapDiagnostic?.Invoke($"key={key.Key:X} down={isDown} mods={Native.Modifiers} other={other} repeat={repeat} fired={fired} held={string.Join(",", down)}");
             if (fired) dispatcher.TryEnqueue(() => Toggle?.Invoke());
             if (suppress && shortcut is Hotkey hotkey && isDown && key.Key == hotkey.Key && Native.Modifiers == hotkey.Modifiers)
@@ -197,7 +245,7 @@ internal sealed class DesktopIntegration : IDisposable
                 swallowed.Add(key.Key); return 1;
             }
         }
-        return Native.CallNextHookEx(0, code, wParam, lParam);
+        return 0;
     }
 
     private nint MouseMessage(int code, nint wParam, nint lParam)
