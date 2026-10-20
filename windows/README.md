@@ -10,12 +10,32 @@
 # 在仓库根目录运行，默认选择本机架构
 .\windows\build.ps1 -Run
 
+# 测试仍显示真实托盘图标；先部署本次构建，再运行测试
+.\windows\build.ps1 -Run -RunArguments --control-smoke-test
+
 # 分发目录包含 .NET 和 Windows App SDK 运行时，无需另装运行时
 .\windows\build.ps1 -Architecture x64 -Publish
 .\windows\build.ps1 -Architecture ARM64 -Publish
 ```
 
 以上命令仅用于本地开发，显式关闭商店授权检查，不可作为付费商店版分发。开发输出位于 `windows/artifacts/<架构>/`。正式分发使用下文的 MSIX 打包命令；项目默认开启商店授权检查，商店构建在包外运行不会解锁功能。
+
+### 本地版本共用安装与托盘身份
+
+所有未打包的本地版本（Debug / Release、ARM64 / x64）统一运行于 `%LOCALAPPDATA%\Programs\KeyboardLauncher\KeyboardLauncher.exe`。`build.ps1 -Run` 会调用 `deploy-local.ps1`，先退出固定目录中的旧实例，覆盖本次构建输出，再从固定目录启动。测试前保存正在编辑的内容；切换版本会结束当前实例。仅构建或发布而不传 `-Run` 不会替换正在使用的版本。
+
+已有构建输出也可以部署，并选择启动参数：
+
+```powershell
+.\windows\deploy-local.ps1 -SourceDirectory .\windows\artifacts\ARM64
+.\windows\deploy-local.ps1 -SourceDirectory .\windows\artifacts\ARM64 -LaunchArguments --tray-menu-smoke-test
+```
+
+配置始终使用 `%LOCALAPPDATA%\KeyboardLauncher\config.json`；部署不会覆盖它，也不会自动启用登录启动。已存在的登录启动项会修正为固定路径。托盘始终保留可测试的图标，并使用永久 GUID `1fdf1ec1-68d7-4f1e-8279-091a7cc1a2d7`；新增、修改、Explorer 重启后的重建和删除都沿用该身份。不要为新版本更换 GUID。
+
+直接从其他目录运行本地版本会在创建托盘图标前退出并提示先部署，避免无意中测试已安装的旧版。`--installation-check` 可无界面检查路径：固定目录返回退出码 0，其他目录返回 3；内部 `--launch-probe` 不创建托盘，仍允许独立运行。历史版本不含此保护；MSIX 商店版继续使用系统管理的安装、配置和启动机制，不会被本地部署脚本改动。
+
+Windows 对 GUID 图标还有可执行文件路径校验，因此必须同时固定 GUID 和运行路径，而不能仅给不同目录的测试版设置同一 GUID。参见 [Microsoft NotificationIcon 示例说明](https://learn.microsoft.com/en-us/windows/win32/shell/samples-notificationicon)。已有非 GUID 托盘记录在首次升级时可能需要清理一次；后续测试无需反复清理注册表。
 
 单独运行验证：
 
@@ -90,7 +110,7 @@ Windows 客户端默认使用 English。在 General → Language 可通过分段
 | `ActionRunner` | Shell 启动、cmd 命令、前台校验与 SendInput |
 | `KeyboardLauncher.Checks` | 可独立运行的核心回归检查，不需要 WinUI |
 
-普通快捷键模式报告占用冲突并保留原配置；拦截模式通过钩子吞掉匹配的按下/抬起事件。Ctrl+Alt+Delete 等 Windows 保留组合不能覆盖。双击检测排除长按、重复、组合键、鼠标点击和本程序发送的按键；允许虚拟机或远程键盘标记的输入。钩子回调只检测状态并投递 UI 工作，不执行文件或进程操作。
+普通快捷键模式报告占用冲突并保留原配置；拦截模式通过钩子吞掉匹配的按下/抬起事件。Ctrl+Alt+Delete 等 Windows 保留组合不能覆盖。双击检测排除长按、重复、组合键、鼠标点击和本程序发送的按键；允许虚拟机或远程键盘标记的输入。键盘和鼠标钩子使用独立线程及消息循环，避免界面停顿导致 Windows 超时移除监听。钩子回调只检测状态并投递 UI 工作，不执行文件或进程操作；共享按键状态通过锁同步，录入回调在释放锁后于 UI 线程执行。
 
 发送快捷键前等待实体按键释放，激活原窗口，并再次确认焦点。Windows UIPI 不允许普通权限应用向管理员权限应用发送输入，失败会提示。不会自动提升客户端权限。
 
@@ -106,7 +126,7 @@ Windows 客户端默认使用 English。在 General → Language 可通过分段
 
 已在 Windows ARM64 验证主题切换、面板与设置窗口，并通过 14 项核心回归检查；ARM64 / x64 均编译通过。x64 尚未在独立 x64 设备运行验收。
 
-`--control-smoke-test` 使用带测试标记的输入验证左右 Control 双击经过全局键盘钩子后各唤起一次，报告写入程序目录的 `control-smoke-test.txt`；不会保存测试配置。需要先退出已运行实例。
+`--control-smoke-test` 使用带测试标记的输入验证左右 Control、Alt、Shift 和 Space 双击各唤起一次，并验证 UI 线程停顿 1.6 秒期间双击 Control 仍然有效。报告写入程序目录的 `control-smoke-test.txt`；不会保存测试配置。需要先退出已运行实例，测试期间不要操作键盘和鼠标。
 
 `--panel-smoke-test` 验证窗口圆角区域、Esc 按键经过实际钩子关闭面板，以及前台窗口改变后的自动隐藏。失焦检测在面板显示时运行，编辑绑定期间暂停；隐藏后停止检测和阴影绘制。
 

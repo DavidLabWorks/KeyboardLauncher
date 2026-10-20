@@ -40,6 +40,16 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         if (Environment.GetCommandLineArgs().Contains("--launch-probe")) { RunLaunchProbe(); return; }
+        var installationCheck = Environment.GetCommandLineArgs().Contains("--installation-check");
+        if (!StoreIntegration.IsPackaged && !LocalInstallation.IsCanonicalExecutable(Environment.ProcessPath))
+        {
+            // Never register a tray icon or startup entry for a build directory.
+            // Reject instead of launching an older installed build by accident.
+            if (!installationCheck)
+                Native.MessageBoxW(0, L.F("请先使用 windows/build.ps1 -Run 或 windows/deploy-local.ps1 部署此版本。所有本地版本共用运行目录：{0}", LocalInstallation.DirectoryPath), DisplayName, 0x40);
+            Environment.ExitCode = 3; Exit(); return;
+        }
+        if (installationCheck) { Exit(); return; }
         instance = new Mutex(true, "Local\\KeyboardLauncher.Windows." + Environment.UserName, out bool created);
         if (!created)
         {
@@ -250,7 +260,27 @@ public partial class App : Application
                 observations.Add($"0x{key:X}: {count - before}");
                 if (count - before != 1) throw new InvalidOperationException($"Expected one toggle for 0x{key:X}: {string.Join(", ", observations)}");
             }
-            File.WriteAllText(report, count == 7 ? "PASS: left/right Control, Alt, Shift and Space each toggle once through the global hook." : $"FAIL: expected seven toggles, got {count}. {string.Join(", ", observations)}");
+            // Real input must still reach the hook while the UI is busy for
+            // longer than Windows' maximum low-level hook timeout (one second).
+            panel.Hide(false);
+            desktop.Configure(Config with { DoubleTapKey = "leftControl" });
+            var beforeStall = count;
+            var sender = Task.Run(() =>
+            {
+                Thread.Sleep(100);
+                var inputs = new uint[] { 0, 2, 0, 2 }.Select(flags => new Native.Input
+                {
+                    Type = 1, Data = new() { Keyboard = new() { Key = 0xA2, Flags = flags, ExtraInfo = 0x54455354 } }
+                }).ToArray();
+                if (Native.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<Native.Input>()) != inputs.Length)
+                    throw new InvalidOperationException("UI stall test input rejected");
+            });
+            Thread.Sleep(1600);
+            await sender;
+            await Task.Delay(300);
+            if (count - beforeStall != 1)
+                throw new InvalidOperationException($"Hook did not survive UI stall: {string.Join(", ", observations)}");
+            File.WriteAllText(report, count == 8 ? "PASS: left/right Control, Alt, Shift and Space each toggle once; double Control survives a 1.6-second UI stall." : $"FAIL: expected eight toggles, got {count}. {string.Join(", ", observations)}");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { desktop.Toggle -= Count; Quit(); }

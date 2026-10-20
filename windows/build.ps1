@@ -1,9 +1,11 @@
 param(
     [ValidateSet('ARM64', 'x64')][string]$Architecture = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$Publish,
-    [switch]$Run
+    [switch]$Run,
+    [ValidatePattern('^--[a-z0-9-]+$')][string[]]$RunArguments = @()
 )
 $ErrorActionPreference = 'Stop'
+if ($RunArguments.Count -and -not $Run) { throw '-RunArguments requires -Run.' }
 $project = Join-Path $PSScriptRoot 'KeyboardLauncher/KeyboardLauncher.csproj'
 $checks = Join-Path $PSScriptRoot 'KeyboardLauncher.Checks/KeyboardLauncher.Checks.csproj'
 dotnet run --project $checks --configuration Release
@@ -17,4 +19,4 @@ if ($Publish) {
     $output = Join-Path $PSScriptRoot "KeyboardLauncher/bin/$Architecture/Debug/net8.0-windows10.0.19041.0/$runtime"
 }
 if ($LASTEXITCODE -ne 0) { throw 'Windows build failed.' }
-if ($Run) { Start-Process -FilePath (Join-Path $output 'KeyboardLauncher.exe') }
+if ($Run) { & (Join-Path $PSScriptRoot 'deploy-local.ps1') -SourceDirectory $output -LaunchArguments $RunArguments }

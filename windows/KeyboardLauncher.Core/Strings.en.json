@@ -172,5 +172,6 @@
   "选择文件夹…": "Choose a folder…",
   "浏览应用…": "Browse apps…",
   "应用路径": "Application path",
-  "文件或文件夹不存在，请重新选择。": "The file or folder no longer exists. Choose it again."
+  "文件或文件夹不存在，请重新选择。": "The file or folder no longer exists. Choose it again.",
+  "请先使用 windows/build.ps1 -Run 或 windows/deploy-local.ps1 部署此版本。所有本地版本共用运行目录：{0}": "Deploy this build with windows/build.ps1 -Run or windows/deploy-local.ps1 first. All local versions share this run directory: {0}"
 }

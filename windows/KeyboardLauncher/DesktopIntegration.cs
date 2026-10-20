@@ -11,13 +11,14 @@ internal sealed class DesktopIntegration : IDisposable
     private readonly DispatcherQueue dispatcher;
     private readonly Native.SubclassProc windowProc;
     private readonly Native.HookProc keyboardProc, mouseProc;
-    private nint keyboardHook, mouseHook;
+    private InputHookThread? inputHooks;
+    private readonly object inputState = new();
     private Native.NotifyIconData tray;
     private readonly uint taskbarCreated = Native.RegisterWindowMessageW("TaskbarCreated");
     private readonly DoubleModifierTap doubleTap = new();
     private readonly HashSet<uint> down = [], swallowed = [];
     private Hotkey? shortcut;
-    private bool suppress, disposed;
+    private bool suppress, disposed, suspended;
     private int hotkeyId = 1;
     private nint recordingWindow;
     private Action<Hotkey>? recordingCallback;
@@ -25,15 +26,25 @@ internal sealed class DesktopIntegration : IDisposable
     private uint recordingModifier;
     public void BeginRecording(nint window, Action<Hotkey> callback, bool modifierOnly = false)
     {
-        recordingWindow = window; recordingCallback = callback; recordingModifierOnly = modifierOnly; recordingModifier = 0; doubleTap.Reset();
+        lock (inputState)
+        {
+            recordingWindow = window; recordingCallback = callback; recordingModifierOnly = modifierOnly; recordingModifier = 0; doubleTap.Reset();
+        }
     }
     public void EndRecording(nint window)
     {
-        if (recordingWindow != window) return;
-        recordingCallback = null; recordingWindow = 0; recordingModifier = 0; doubleTap.Reset();
+        lock (inputState)
+        {
+            if (recordingWindow != window) return;
+            recordingCallback = null; recordingWindow = 0; recordingModifier = 0; doubleTap.Reset();
+        }
     }
-    public bool IsAnyKeyDown => down.Count != 0;
-    public bool Suspended { get; set; }
+    public bool IsAnyKeyDown { get { lock (inputState) return down.Count != 0; } }
+    public bool Suspended
+    {
+        get { lock (inputState) return suspended; }
+        set { lock (inputState) { suspended = value; doubleTap.Reset(); } }
+    }
     public event Action? Toggle, TrayMenuRequested;
     public event Action<uint, uint>? PanelKeyPressed;
     internal Action<string>? DoubleTapDiagnostic;
@@ -45,12 +56,12 @@ internal sealed class DesktopIntegration : IDisposable
         try
         {
             if (!Native.SetWindowSubclass(hwnd, windowProc, 1, 0)) throw new Win32Exception(L.T("无法安装窗口消息处理程序。"));
-            keyboardHook = Native.SetWindowsHookExW(13, keyboardProc, Native.GetModuleHandleW(null), 0);
-            if (keyboardHook == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), L.T("无法安装键盘钩子。"));
-            mouseHook = Native.SetWindowsHookExW(14, mouseProc, Native.GetModuleHandleW(null), 0);
-            if (mouseHook == 0) throw new Win32Exception(Marshal.GetLastWin32Error(), L.T("无法安装鼠标钩子。"));
+            inputHooks = new InputHookThread(keyboardProc, mouseProc);
             tray = new() { Size = (uint)Marshal.SizeOf<Native.NotifyIconData>(), Window = hwnd, Id = 1, Flags = 7, CallbackMessage = 0x8001,
                 Icon = Native.LoadImageW(0, Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"), 1, 32, 32, 0x10), Tip = L.T("指间 · Keyboard Launcher"), Info = "", InfoTitle = "" };
+            // MSIX keeps its package-managed identity. Unpackaged builds all
+            // run from LocalInstallation and reuse this GUID, including tests.
+            if (!StoreIntegration.IsPackaged) { tray.Flags |= 0x20; tray.Guid = LocalInstallation.TrayIconGuid; }
             if (!Native.Shell_NotifyIconW(0, ref tray)) throw new Win32Exception(L.T("无法创建托盘图标。"));
         }
         catch { Dispose(); throw; }
@@ -59,17 +70,20 @@ internal sealed class DesktopIntegration : IDisposable
     // Register a new ID before removing the old shortcut, so conflicts preserve the working one.
     public void Configure(LauncherConfig config)
     {
-        var next = string.IsNullOrWhiteSpace(config.Shortcut) ? (Hotkey?)null : Hotkey.Parse(config.Shortcut);
-        if (next != shortcut || suppress != config.SuppressSystemShortcut)
+        lock (inputState)
         {
-            var newId = hotkeyId == 1 ? 2 : 1;
-            if (next is Hotkey hotkey && !config.SuppressSystemShortcut && !Native.RegisterHotKey(hwnd, newId, hotkey.Modifiers | 0x4000, hotkey.Key))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), L.T("快捷键已被其他程序占用，请选择其他组合，或启用拦截模式。"));
-            Native.UnregisterHotKey(hwnd, hotkeyId);
-            hotkeyId = newId; shortcut = next; suppress = config.SuppressSystemShortcut;
+            var next = string.IsNullOrWhiteSpace(config.Shortcut) ? (Hotkey?)null : Hotkey.Parse(config.Shortcut);
+            if (next != shortcut || suppress != config.SuppressSystemShortcut)
+            {
+                var newId = hotkeyId == 1 ? 2 : 1;
+                if (next is Hotkey hotkey && !config.SuppressSystemShortcut && !Native.RegisterHotKey(hwnd, newId, hotkey.Modifiers | 0x4000, hotkey.Key))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), L.T("快捷键已被其他程序占用，请选择其他组合，或启用拦截模式。"));
+                Native.UnregisterHotKey(hwnd, hotkeyId);
+                hotkeyId = newId; shortcut = next; suppress = config.SuppressSystemShortcut;
+            }
+            doubleTap.Modifier = config.DoubleTapKey;
+            doubleTap.Reset();
         }
-        doubleTap.Modifier = config.DoubleTapKey;
-        doubleTap.Reset();
     }
 
     private nint WindowMessage(nint window, uint message, nint wParam, nint lParam, nuint id, nuint data)
@@ -92,15 +106,31 @@ internal sealed class DesktopIntegration : IDisposable
 
     private nint KeyboardMessage(int code, nint wParam, nint lParam)
     {
-        if (code < 0) return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+        lock (inputState) return KeyboardMessageCore(code, wParam, lParam);
+    }
+
+    private void QueueRecording(Action<Hotkey> callback, Hotkey captured)
+    {
+        dispatcher.TryEnqueue(() =>
+        {
+            lock (inputState) { if (recordingCallback != callback) return; }
+            // Recording callbacks can save settings and render UI. Never hold
+            // the hook's state lock while invoking application code.
+            callback(captured);
+        });
+    }
+
+    private nint KeyboardMessageCore(int code, nint wParam, nint lParam)
+    {
+        if (code < 0) return Native.CallNextHookEx(0, code, wParam, lParam);
         var key = Marshal.PtrToStructure<Native.KeyboardData>(lParam);
         // Ignore our own SendInput events, not all injected input: VM / remote
         // keyboard drivers may also mark a user's physical keystrokes injected.
-        if (key.ExtraInfo == 0x4C504943) return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+        if (key.ExtraInfo == 0x4C504943) return Native.CallNextHookEx(0, code, wParam, lParam);
         // Alt menu suppression tools can insert VK_NONAME. It is not a
         // physical chord key and must not cancel an otherwise isolated Alt tap.
-        if (key.Key == 0xFC) return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
-        if (key.Key == 0x07 && (key.Flags & 0x10) != 0) return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+        if (key.Key == 0xFC) return Native.CallNextHookEx(0, code, wParam, lParam);
+        if (key.Key == 0x07 && (key.Flags & 0x10) != 0) return Native.CallNextHookEx(0, code, wParam, lParam);
         // Some virtual/remote keyboards report generic modifier VKs.
         key.Key = key.Key switch
         {
@@ -131,7 +161,7 @@ internal sealed class DesktopIntegration : IDisposable
                     if (down.Overlaps(new uint[] { 0x10, 0xA0, 0xA1 })) mods |= 4;
                     if (down.Overlaps(new uint[] { 0x5B, 0x5C })) mods |= 8;
                     var captured = new Hotkey(mods, key.Key);
-                    dispatcher.TryEnqueue(() => { if (recordingCallback == callback) callback(captured); });
+                    QueueRecording(callback, captured);
                 }
                 return 1;
             }
@@ -139,11 +169,11 @@ internal sealed class DesktopIntegration : IDisposable
             {
                 var captured = new Hotkey(0, key.Key);
                 recordingModifier = 0;
-                dispatcher.TryEnqueue(() => { if (recordingCallback == callback) callback(captured); });
+                QueueRecording(callback, captured);
             }
             // Let releases through for keys pressed before recording began.
             if (swallowed.Remove(key.Key)) return 1;
-            return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+            return Native.CallNextHookEx(0, code, wParam, lParam);
         }
         // Pair swallowed key-downs with their releases even if settings changed meanwhile.
         if (!isDown && swallowed.Remove(key.Key)) return 1;
@@ -167,21 +197,21 @@ internal sealed class DesktopIntegration : IDisposable
                 swallowed.Add(key.Key); return 1;
             }
         }
-        return Native.CallNextHookEx(keyboardHook, code, wParam, lParam);
+        return Native.CallNextHookEx(0, code, wParam, lParam);
     }
 
     private nint MouseMessage(int code, nint wParam, nint lParam)
     {
-        if (code >= 0 && (uint)wParam is 0x201 or 0x204 or 0x207 or 0x20B) doubleTap.Reset();
-        return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+        lock (inputState)
+            if (code >= 0 && (uint)wParam is 0x201 or 0x204 or 0x207 or 0x20B) doubleTap.Reset();
+        return Native.CallNextHookEx(0, code, wParam, lParam);
     }
 
     public void Dispose()
     {
         if (disposed) return; disposed = true;
         Native.UnregisterHotKey(hwnd, hotkeyId);
-        if (keyboardHook != 0) Native.UnhookWindowsHookEx(keyboardHook);
-        if (mouseHook != 0) Native.UnhookWindowsHookEx(mouseHook);
+        inputHooks?.Dispose();
         if (tray.Window != 0) Native.Shell_NotifyIconW(2, ref tray);
         if (tray.Icon != 0) Native.DestroyIcon(tray.Icon);
         Native.RemoveWindowSubclass(hwnd, windowProc, 1);

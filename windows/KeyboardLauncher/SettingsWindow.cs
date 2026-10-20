@@ -280,7 +280,7 @@ internal sealed class SettingsWindow : Window
             {
                 if (StoreIntegration.IsPackaged) { await StoreIntegration.SetStartupAsync(startup.IsOn); return; }
                 using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-                if (startup.IsOn) key.SetValue("KeyboardLauncher", "\"" + Environment.ProcessPath + "\" --background");
+                if (startup.IsOn) key.SetValue("KeyboardLauncher", LocalInstallation.StartupCommand);
                 else key.DeleteValue("KeyboardLauncher", false);
             }
             catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); ShowPage(); }
@@ -366,7 +366,7 @@ internal sealed class SettingsWindow : Window
     private static bool StartupEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-        return key?.GetValue("KeyboardLauncher") is string value && value.Contains(Environment.ProcessPath ?? "\0", StringComparison.OrdinalIgnoreCase);
+        return key?.GetValue("KeyboardLauncher") is string value && value.Equals(LocalInstallation.StartupCommand, StringComparison.OrdinalIgnoreCase);
     }
     private void Shortcuts()
     {

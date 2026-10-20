@@ -28,6 +28,12 @@ internal sealed partial class PanelWindow : Window
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer focusCheck;
     private readonly GlassBackdrop backdrop = new();
     private readonly Border surface = new() { CornerRadius = new CornerRadius(26) };
+    // Draw inside the clipped window without changing content size or hit testing.
+    private readonly Border outline = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+        <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                CornerRadius="26" BorderThickness="1" IsHitTestVisible="False"
+                BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
+        """);
     private nint previousWindow;
     private bool visible, editing, launching, dragging;
     private UIElement? dragSurface;
@@ -108,7 +114,10 @@ internal sealed partial class PanelWindow : Window
         root.Width = 1040; root.Height = 560;
         root.Children.Insert(0, focusHost);
         focusHost.Loaded += (_, _) => { if (visible) focusHost.Focus(FocusState.Programmatic); };
-        surface.Child = root;
+        var layers = new Grid();
+        layers.Children.Add(root);
+        layers.Children.Add(outline);
+        surface.Child = layers;
         Content = new Viewbox { Child = surface, Stretch = Stretch.Uniform };
         // Do not rebuild the visual tree from ActualThemeChanged: WinUI is traversing
         // that tree during theme propagation. Each existing control updates its brushes.

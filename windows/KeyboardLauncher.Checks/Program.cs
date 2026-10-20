@@ -5,6 +5,20 @@ void Check(string name, Action check) { check(); Console.WriteLine($"PASS {name}
 void Assert(bool condition) { if (!condition) throw new Exception("Assertion failed"); }
 void Throws(Action action) { try { action(); } catch (FormatException) { return; } throw new Exception("Expected FormatException"); }
 
+Check("Local versions share one installation, startup target and permanent tray identity", () =>
+{
+    Assert(LocalInstallation.TrayIconGuid == new Guid("1fdf1ec1-68d7-4f1e-8279-091a7cc1a2d7"));
+    Assert(LocalInstallation.DirectoryPath == Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "KeyboardLauncher"));
+    Assert(LocalInstallation.IsCanonicalExecutable(LocalInstallation.ExecutablePath));
+    Assert(LocalInstallation.IsCanonicalExecutable(LocalInstallation.ExecutablePath.ToUpperInvariant()));
+    Assert(!LocalInstallation.IsCanonicalExecutable(null));
+    Assert(!LocalInstallation.IsCanonicalExecutable(" "));
+    Assert(!LocalInstallation.IsCanonicalExecutable(Path.Combine(Path.GetTempPath(), "KeyboardLauncher.exe")));
+    Assert(!LocalInstallation.IsCanonicalExecutable(Path.Combine(LocalInstallation.DirectoryPath, "old", "KeyboardLauncher.exe")));
+    Assert(LocalInstallation.StartupCommand == $"\"{LocalInstallation.ExecutablePath}\" --background");
+});
+
 Check("File and folder actions preserve their type and literal paths across storage and moves", () =>
 {
     var storage = Path.Combine(Path.GetTempPath(), "KeyboardLauncher-paths-" + Guid.NewGuid() + ".json");
