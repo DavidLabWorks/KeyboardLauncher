@@ -918,22 +918,31 @@ struct SettingsDetailView: View {
     private func tapSettings(triple: Bool) -> some View {
         let key = triple ? $state.tripleTapKey : $state.doubleTapKey
         let action = triple ? $state.tripleTapAction : $state.doubleTapAction
-        return VStack(spacing: 10) {
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(verbatim: L(triple ? "Triple-tap key" : "Double-tap key"))
+                    .font(.system(size: 13, weight: .medium))
                 Spacer()
                 if !key.wrappedValue.isEmpty {
-                    Button("Clear") { key.wrappedValue = ""; state.save() }.buttonStyle(.borderless)
+                    Button("Clear") { key.wrappedValue = ""; state.save() }
+                        .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
                 }
                 ShortcutRecorderView(shortcut: key, singleKeyOnly: true, triple: triple) { state.save() }
                     .frame(width: 200, height: 32)
             }
-            Picker(selection: action) {
-                if !triple { Text("Toggle panel").tag("toggle") }
-                Text("Open panel").tag("panel")
-                Text("Open panel and search").tag("search")
-            } label: { Text(verbatim: L(triple ? "Triple-tap action" : "Double-tap action")) }
-            .onChange(of: action.wrappedValue) { _ in state.save() }
+            HStack {
+                Text(verbatim: L(triple ? "Triple-tap action" : "Double-tap action"))
+                    .font(.system(size: 13, weight: .medium))
+                Spacer()
+                Picker(selection: action) {
+                    if !triple { Text("Toggle panel").tag("toggle") }
+                    Text("Open panel").tag("panel")
+                    Text("Open panel and search").tag("search")
+                } label: { Text(verbatim: L(triple ? "Triple-tap action" : "Double-tap action")) }
+                .labelsHidden().pickerStyle(.menu).controlSize(.large)
+                .frame(width: 200, height: 32, alignment: .trailing)
+                .onChange(of: action.wrappedValue) { _ in state.save() }
+            }
         }
     }
 
