@@ -341,7 +341,7 @@ internal sealed class SettingsWindow : Window
         };
         overview.Children.Add(status); overview.Children.Add(release);
         detail.Children.Add(Card(overview));
-        LicenseSection();
+        if (StoreIntegration.Required) LicenseSection();
     }
     private void LicenseSection()
     {

@@ -18,7 +18,7 @@
 .\windows\build.ps1 -Architecture ARM64 -Publish
 ```
 
-以上命令仅用于本地开发，显式关闭商店授权检查，不可作为付费商店版分发。开发输出位于 `windows/artifacts/<架构>/`。正式分发使用下文的 MSIX 打包命令；项目默认开启商店授权检查，商店构建在包外运行不会解锁功能。
+以上命令用于本地开发，显式关闭商店授权检查。GitHub 直接下载版也使用此非商店构建；它不授予商店授权。开发输出位于 `windows/artifacts/<架构>/`。正式分发使用下文的 MSIX 打包命令；项目默认开启商店授权检查，商店构建在包外运行不会解锁功能。
 
 ### 本地版本共用安装与托盘身份
 
@@ -131,6 +131,14 @@ Windows 客户端默认使用 English。在 General → Language 可通过分段
 `--panel-smoke-test` 验证窗口圆角区域、Esc 按键经过实际钩子关闭面板，以及前台窗口改变后的自动隐藏。失焦检测在面板显示时运行，编辑绑定期间暂停；隐藏后停止检测和阴影绘制。
 
 官方参考：[WinUI 与 Windows App SDK](https://learn.microsoft.com/windows/apps/get-started/windows-developer-faq)、[Mica / Acrylic](https://learn.microsoft.com/windows/apps/develop/ui/system-backdrops)。
+
+## GitHub 直接下载版
+
+运行 `./windows/package-direct.ps1 -Architecture ARM64` 和 `./windows/package-direct.ps1 -Architecture x64`，生成无需 Microsoft Store 授权的自包含 EXE 安装包。需要 NSIS；可通过 `-Compiler` 指定 makensis.exe，通过 `-OutputDirectory` 指定输出目录，默认为 `windows/artifacts/direct/`。
+
+安装位置固定为 `%LOCALAPPDATA%\Programs\KeyboardLauncher`，保持托盘与登录启动身份稳定。安装或卸载前须退出应用；卸载保留用户配置。直接下载版关于页链接到 GitHub Releases，不显示商店购买入口。安装包未签名，Windows 可能提示未知发布者。
+
+商店版继续使用下方 `package.ps1`，保留独立的授权与更新流程。
 
 ## 版本与安装包
 
