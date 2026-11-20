@@ -75,10 +75,13 @@ public sealed class DoubleModifierTap
     private long? pressedAt, releasedAt;
     private uint pressedKey;
     public void Reset() { pressedAt = releasedAt = null; pressedKey = 0; }
+    private static readonly uint[] TapKeys = [0x20, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5];
+    public static bool KeysOverlap(string? first, string? second) =>
+        TapKeys.Any(key => Matches(first, key) && Matches(second, key));
+    private static bool Matches(string? modifier, uint key) => modifier switch { "control" => key is 0xA2 or 0xA3, "alt" => key is 0xA4 or 0xA5, "shift" => key is 0xA0 or 0xA1, "leftControl" => key == 0xA2, "rightControl" => key == 0xA3, "leftAlt" => key == 0xA4, "rightAlt" => key == 0xA5, "leftShift" => key == 0xA0, "rightShift" => key == 0xA1, "space" => key == 0x20, _ => false };
     public bool Handle(uint key, bool down, long time, bool repeat, bool otherModifiers)
     {
-        bool selected = modifier switch { "control" => key is 0xA2 or 0xA3, "alt" => key is 0xA4 or 0xA5, "shift" => key is 0xA0 or 0xA1, "leftControl" => key == 0xA2, "rightControl" => key == 0xA3, "leftAlt" => key == 0xA4, "rightAlt" => key == 0xA5, "leftShift" => key == 0xA0, "rightShift" => key == 0xA1, "space" => key == 0x20, _ => false };
-        if (!selected || repeat || otherModifiers) { Reset(); return false; }
+        if (!Matches(modifier, key) || repeat || otherModifiers) { Reset(); return false; }
         if (down)
         {
             if (pressedAt != null) { Reset(); return false; }
@@ -87,8 +90,76 @@ public sealed class DoubleModifierTap
         }
         if (pressedAt is not long start || pressedKey != key || time - start > 300) { Reset(); return false; }
         pressedAt = null;
-        if (releasedAt is long release && time - release <= 400) { Reset(); return true; }
+        if (releasedAt is long release && time - release <= ModifierTapGestures.GapMs) { Reset(); return true; }
         releasedAt = time;
         return false;
+    }
+}
+
+public enum TapDecision { None, Double, WaitForThird, Triple }
+
+public sealed class ModifierTapGestures
+{
+    public const int GapMs = 400;
+    private readonly DoubleModifierTap doubleTap = new(), triplePrefix = new() { Modifier = null };
+    private uint candidate;
+    private long secondRelease;
+    private long? thirdPress;
+    private bool pendingDouble;
+    public long Generation { get; private set; }
+    public string? DoubleKey => doubleTap.Modifier;
+
+    public void Configure(string? doubleKey, string? tripleKey)
+    {
+        doubleTap.Modifier = doubleKey;
+        triplePrefix.Modifier = tripleKey;
+        Reset();
+    }
+
+    public void Reset()
+    {
+        doubleTap.Reset();
+        triplePrefix.Reset();
+        candidate = 0;
+        pendingDouble = false;
+        thirdPress = null;
+        Generation++;
+    }
+
+    public bool Expire(long generation)
+    {
+        if (generation != Generation || !pendingDouble || thirdPress.HasValue) return false;
+        Reset();
+        return true;
+    }
+
+    public TapDecision Handle(uint key, bool down, long time, bool repeat, bool other)
+    {
+        bool expiredDouble = false;
+        if (candidate != 0)
+        {
+            if (thirdPress is long start && !down && key == candidate && !other && time - start <= 300)
+            {
+                Reset();
+                return TapDecision.Triple;
+            }
+            if (!thirdPress.HasValue && down && key == candidate && !repeat && !other && time - secondRelease <= GapMs)
+            {
+                thirdPress = time;
+                return TapDecision.None;
+            }
+            expiredDouble = pendingDouble && !thirdPress.HasValue && time - secondRelease > GapMs;
+            Reset();
+        }
+        bool twice = doubleTap.Handle(key, down, time, repeat, other);
+        if (triplePrefix.Handle(key, down, time, repeat, other))
+        {
+            candidate = key;
+            secondRelease = time;
+            pendingDouble = twice;
+            Generation++;
+            return twice ? TapDecision.WaitForThird : TapDecision.None;
+        }
+        return twice || expiredDouble ? TapDecision.Double : TapDecision.None;
     }
 }

@@ -155,3 +155,22 @@
 "Could not open the selected file or folder." = "Could not open the selected file or folder.";
 
 "Quit" = "Quit";
+"Search applications" = "Search applications";
+"Close search" = "Close search";
+"All applications" = "All applications";
+"Search results" = "Search results";
+"Recently added" = "Recently added";
+"Recently opened" = "Recently opened";
+"Loading applications…" = "Loading applications…";
+"No matching applications" = "No matching applications";
+"↑ ↓  Select     ↩  Open     Esc  Close" = "↑ ↓  Select     ↩  Open     Esc  Close";
+"Could not bind this application." = "Could not bind this application.";
+"Triple-tap key" = "Triple-tap key";
+"Triple-tap action" = "Triple-tap action";
+"Double-tap action" = "Double-tap action";
+"Toggle panel" = "Toggle panel";
+"Open panel" = "Open panel";
+"Open panel and search" = "Open panel and search";
+"Record Triple-Tap Key" = "Record Triple-Tap Key";
+"After the second release, wait up to 400 ms for a third tap." = "After the second release, wait up to 400 ms for a third tap.";
+"Allow Accessibility access to use tap shortcuts." = "Allow Accessibility access to use tap shortcuts.";

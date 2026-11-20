@@ -155,3 +155,22 @@
 "Could not open the selected file or folder." = "无法打开所选文件或文件夹。";
 
 "Quit" = "退出";
+"Search applications" = "搜索应用";
+"Close search" = "收起搜索";
+"All applications" = "所有应用";
+"Search results" = "搜索结果";
+"Recently added" = "最近添加";
+"Recently opened" = "最近点击";
+"Loading applications…" = "正在加载应用…";
+"No matching applications" = "没有匹配的应用";
+"↑ ↓  Select     ↩  Open     Esc  Close" = "↑ ↓  选择     ↩  打开     Esc  返回";
+"Could not bind this application." = "无法绑定此应用。";
+"Triple-tap key" = "三击按键";
+"Triple-tap action" = "三击动作";
+"Double-tap action" = "双击动作";
+"Toggle panel" = "显示或隐藏面板";
+"Open panel" = "打开面板";
+"Open panel and search" = "打开面板并聚焦搜索";
+"Record Triple-Tap Key" = "录入三击按键";
+"After the second release, wait up to 400 ms for a third tap." = "第二次松开后会等待最多 400 毫秒，期间再次轻按同一键即可触发三击。";
+"Allow Accessibility access to use tap shortcuts." = "请授予辅助功能权限，以使用连击快捷键。";

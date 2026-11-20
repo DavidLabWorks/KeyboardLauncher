@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.Foundation;
+using Microsoft.UI.Input;
 
 namespace KeyboardLauncher;
 
@@ -19,11 +20,144 @@ internal sealed partial class PanelWindow
     private Button? movingKeycap;
     private Grid? movingContent;
     private bool bindingDragging;
+    // Own the entire mouse gesture before ListViewItem can turn release into ItemClick.
+    // Keyboard, automation, and touch scrolling still use the stock list container.
+    private sealed class SearchList : ListView
+    {
+        internal Action<ListViewItem, PointerRoutedEventArgs>? MousePressed;
+        protected override DependencyObject GetContainerForItemOverride() => new SearchItem(this);
+        private sealed class SearchItem(SearchList owner) : ListViewItem
+        {
+            protected override void OnPointerPressed(PointerRoutedEventArgs e)
+            {
+                if (e.Pointer.PointerDeviceType == PointerDeviceType.Mouse && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                {
+                    e.Handled = true;
+                    owner.MousePressed?.Invoke(this, e);
+                }
+                else base.OnPointerPressed(e);
+            }
+        }
+    }
+
+    private sealed class SearchDragLayer : Canvas
+    {
+        private readonly InputCursor blocked = InputSystemCursor.Create(InputSystemCursorShape.UniversalNo);
+        internal void SetAllowed(bool allowed) => ProtectedCursor = allowed ? PointerCursors.Hand : blocked;
+    }
+
+    private readonly SearchDragLayer searchDragLayer = new()
+    {
+        Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
+        Visibility = Visibility.Collapsed, Translation = new System.Numerics.Vector3(0, 0, 48)
+    };
+    private readonly Border searchDragPreview = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+        <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                IsHitTestVisible="False" Visibility="Collapsed" CornerRadius="10" Padding="10,6"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" BorderThickness="1"
+                BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Image Width="32" Height="32" Source="{Binding Icon}"/>
+                <TextBlock Text="{Binding Name}" MaxWidth="164" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+        </Border>
+        """);
+    private AppEntry? pressedSearchApp;
+    private uint searchPointer;
+    private Point searchPressPoint;
+    private Rect searchPressBounds;
+    private bool searchDragging;
+
+    private void StartSearchPress(ListViewItem source, PointerRoutedEventArgs e)
+    {
+        if (!Searching || launching || app.BindingSavePending || pressedSearchApp != null || ResultApp(source.Content) is not AppEntry entry) return;
+        searchDragLayer.Visibility = Visibility.Visible;
+        if (!searchDragLayer.CapturePointer(e.Pointer)) { searchDragLayer.Visibility = Visibility.Collapsed; return; }
+        searchDragLayer.SetAllowed(true);
+        pressedSearchApp = entry;
+        searchPointer = e.Pointer.PointerId;
+        searchPressPoint = e.GetCurrentPoint(searchDragLayer).Position;
+        searchPressBounds = source.TransformToVisual(searchDragLayer).TransformBounds(new Rect(0, 0, source.ActualWidth, source.ActualHeight));
+    }
+
+    private void UpdateSearchDrag(Point point)
+    {
+        if (!searchDragging)
+        {
+            if (Math.Abs(point.X - searchPressPoint.X) < 6 && Math.Abs(point.Y - searchPressPoint.Y) < 6) return;
+            searchDragging = true;
+            searchDropdown.Visibility = dismissSearch.Visibility = Visibility.Collapsed;
+            searchDragPreview.DataContext = pressedSearchApp;
+            searchDragPreview.Visibility = Visibility.Visible;
+            searchDragPreview.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        }
+        var preview = searchDragPreview.DesiredSize;
+        Canvas.SetLeft(searchDragPreview, point.X + 14 + preview.Width <= searchDragLayer.ActualWidth
+            ? point.X + 14 : Math.Max(0, point.X - preview.Width - 14));
+        Canvas.SetTop(searchDragPreview, Math.Clamp(point.Y + 12, 0, Math.Max(0, searchDragLayer.ActualHeight - preview.Height)));
+        int target = EmptySearchTarget(point);
+        searchDragLayer.SetAllowed(target >= 0);
+        foreach (var (slot, mark) in dropMarks) mark.Visibility = slot == target ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private int EmptySearchTarget(Point point)
+    {
+        int slot = BindingTarget(point);
+        return slot >= 0 && !app.BindingSavePending && app.Config.At(slot) == null ? slot : -1;
+    }
+
+    private void FinishSearchDrag()
+    {
+        if (pressedSearchApp == null) return;
+        pressedSearchApp = null;
+        searchDragging = false;
+        searchDragPreview.Visibility = Visibility.Collapsed;
+        searchDragPreview.DataContext = null;
+        searchDragLayer.ReleasePointerCaptures();
+        searchDragLayer.Visibility = Visibility.Collapsed;
+        if (Searching) searchDropdown.Visibility = dismissSearch.Visibility = Visibility.Visible;
+        foreach (var mark in dropMarks.Values) mark.Visibility = Visibility.Collapsed;
+    }
+
+    private async void ReleaseSearchPress(object sender, PointerRoutedEventArgs e)
+    {
+        if (pressedSearchApp is not AppEntry entry || e.Pointer.PointerId != searchPointer) return;
+        e.Handled = true;
+        var point = e.GetCurrentPoint(searchDragLayer).Position;
+        UpdateSearchDrag(point);
+        bool click = !searchDragging && searchPressBounds.Contains(point);
+        int target = searchDragging ? EmptySearchTarget(point) : -1;
+        FinishSearchDrag();
+        if (click) { await LaunchResult(entry); return; }
+        if (target < 0) return;
+        try
+        {
+            app.Save(app.Config.Bind(target, new Launcher { Name = entry.Name, Exec = entry.Path }));
+            CloseSearch(animate: false);
+            focusHost.Focus(FocusState.Programmatic);
+        }
+        catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); }
+    }
 
     private void InitializeBindingDrag()
     {
         Grid.SetRowSpan(bindingOverlay, 3);
         root.Children.Add(bindingOverlay);
+        Grid.SetRowSpan(searchDragLayer, 3);
+        searchDragLayer.Children.Add(searchDragPreview);
+        root.Children.Add(searchDragLayer);
+        recommendations.MousePressed = searchResults.MousePressed = StartSearchPress;
+        searchDragLayer.PointerMoved += (_, e) =>
+        {
+            if (pressedSearchApp == null || e.Pointer.PointerId != searchPointer) return;
+            var point = e.GetCurrentPoint(searchDragLayer);
+            if (point.Properties.IsLeftButtonPressed) UpdateSearchDrag(point.Position);
+            else FinishSearchDrag();
+            e.Handled = true;
+        };
+        searchDragLayer.PointerReleased += ReleaseSearchPress;
+        searchDragLayer.PointerCanceled += (_, e) => { if (e.Pointer.PointerId == searchPointer) FinishSearchDrag(); };
+        searchDragLayer.PointerCaptureLost += (_, e) => { if (e.Pointer.PointerId == searchPointer) FinishSearchDrag(); };
     }
 
     private void AttachBindingDrag(Grid cap, int slot, Button button)

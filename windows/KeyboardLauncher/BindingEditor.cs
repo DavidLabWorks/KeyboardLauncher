@@ -457,42 +457,6 @@ internal static class BindingEditor
             foreach (var extension in extensions) picker.FileTypeFilter.Add(extension);
             return await picker.PickSingleFileAsync();
         }
-        private async Task LoadApps() { apps = await Task.Run(ScanApps); }
-    }
-
-    private sealed class AppEntry(string name, string path) : System.ComponentModel.INotifyPropertyChanged
-    {
-        public string Name { get; } = name;
-        public string Path { get; } = path;
-        private bool loading;
-        private Microsoft.UI.Xaml.Media.ImageSource? icon;
-        public Microsoft.UI.Xaml.Media.ImageSource? Icon
-        {
-            get { if (!loading) { loading = true; _ = LoadIcon(); } return icon; }
-        }
-        private async Task LoadIcon()
-        {
-            icon = await ApplicationIcons.Load(Path);
-            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Icon)));
-        }
-        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
-        public override string ToString() => Name;
-    }
-    private static List<AppEntry> ScanApps()
-    {
-        var result = new List<AppEntry>();
-        foreach (var folder in new[] { Environment.SpecialFolder.StartMenu, Environment.SpecialFolder.CommonStartMenu })
-        {
-            var directory = Environment.GetFolderPath(folder);
-            if (!Directory.Exists(directory)) continue;
-            try
-            {
-                result.AddRange(Directory.EnumerateFiles(directory, "*.lnk", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true })
-                    .Select(path => new AppEntry(Path.GetFileNameWithoutExtension(path), path)));
-            }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
-        return result.DistinctBy(x => x.Name).OrderBy(x => x.Name).ToList();
+        private async Task LoadApps() { apps = await Task.Run(LocalApplications.ScanStartMenu); }
     }
 }

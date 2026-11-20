@@ -59,11 +59,11 @@ Settings groups and sidebar: 12-DIP corners. Navigation and ordinary buttons: 8 
 
 ## Interaction refinements
 
-- Shortcut setting labels align with equal-width recorders; help spans the full card width. Detailed double-tap rules remain discoverable in an expander.
+- Shortcut setting labels align with equal-width recorders; help spans the full card width. Show the timing hint only when double-tap and triple-tap share a physical key.
 - Binding validation explains disabled Save next to the name or action. Errors update as the draft changes.
-- Launcher removal has a 28-DIP target and an inline Undo action until another removal, replacement of that slot, or exit. Undo restores only the removed snapshot and preserves unrelated edits. Full binding names are available on hover.
+- Launcher removal has a 28-DIP target and immediately returns the key to its empty state. Full binding names are available on hover.
 - Navigation selection and drag targets resolve semantic theme brushes. About shows the version once and groups licensing content without unnecessary dividers.
 
 ## Appearance baseline
 
-Preserve the established keyboard composition, native acrylic, full rounded keycaps, artwork proportions, settings and editor layouts. Empty positions remain visible and legible. Retain keyboard/context-menu removal, Undo, accurate script terminology, accessible validation and local release links. Visual changes require a concrete reference accepted by the user before replacing the running appearance.
+Preserve the established keyboard composition, native acrylic, full rounded keycaps, artwork proportions, settings and editor layouts. Empty positions remain visible and legible. Retain keyboard/context-menu removal, accurate script terminology, accessible validation and local release links. Visual changes require a concrete reference accepted by the user before replacing the running appearance.

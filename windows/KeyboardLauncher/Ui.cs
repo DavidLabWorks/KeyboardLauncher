@@ -130,12 +130,13 @@ internal static class Ui
         if (item != null && item.ActionType is ("application" or "file" or "folder") && string.IsNullOrWhiteSpace(item.KeyboardShortcut))
         {
             var target = Environment.ExpandEnvironmentVariables(item.Exec);
-            if (!Path.IsPathRooted(target))
+            bool shellApp = target.StartsWith(@"shell:AppsFolder\", StringComparison.OrdinalIgnoreCase);
+            if (!shellApp && !Path.IsPathRooted(target))
                 target = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';').Select(p => Path.Combine(p, target)).FirstOrDefault(File.Exists) ?? target;
-            if (File.Exists(target) || Directory.Exists(target))
+            if (shellApp || File.Exists(target) || Directory.Exists(target))
             {
                 var picture = new Image { Width = 48, Height = 48 };
-                _ = LoadApplicationIcon(picture, target);
+                _ = LoadApplicationIcon(picture, shellApp ? target : Path.GetFullPath(target));
                 return picture;
             }
         }
@@ -151,7 +152,7 @@ internal static class Ui
     {
         try
         {
-            var shellIcon = await ApplicationIcons.Load(Path.GetFullPath(path));
+              var shellIcon = await ApplicationIcons.Load(path);
             if (shellIcon != null) { image.Source = shellIcon; return; }
             var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(Path.GetFullPath(path));
             using var thumbnail = await file.GetThumbnailAsync(Windows.Storage.FileProperties.ThumbnailMode.SingleItem, 96, Windows.Storage.FileProperties.ThumbnailOptions.UseCurrentScale);

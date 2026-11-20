@@ -5,7 +5,7 @@ A Windows desktop launcher that maps applications and actions to physical keyboa
 ## Product truth
 
 - Supports applications, URLs, script files, files, folders and keyboard shortcut actions. Existing command bindings remain supported.
-- Supports Chinese and English, system/light/dark themes, paging, editing, drag/swap and removal with Undo.
+- Supports Chinese and English, system/light/dark themes, paging, editing, drag/swap and removal.
 - Settings persist automatically; binding editor changes remain drafts until Save.
 - Local installation and Microsoft Store distribution have different update and licensing paths.
 

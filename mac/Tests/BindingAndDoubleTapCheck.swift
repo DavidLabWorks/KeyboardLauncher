@@ -129,6 +129,29 @@ struct BindingAndDoubleTapCheck {
         assert(!send(59, false, 0.057009416))
         assert(!send(59, true, 0.123779708))
         assert(send(59, false, 0.274822916))
+        var gestures = TapGestures(double: 58, triple: 58)
+        func click(_ code: UInt16, _ time: Double) -> TapGestures.Decision {
+            _ = gestures.handle(keyCode: code, isDown: true, time: time)
+            return gestures.handle(keyCode: code, isDown: false, time: time + 0.05)
+        }
+        assert(click(58, 0) == .none && click(58, 0.2) == .wait)
+        let token = gestures.generation
+        assert(gestures.handle(keyCode: 58, isDown: true, time: 0.6) == .none)
+        assert(!gestures.expire(token))
+        assert(gestures.handle(keyCode: 58, isDown: false, time: 0.7) == .triple)
+        assert(!gestures.expire(token))
+        assert(click(58, 1) == .none && click(58, 1.2) == .wait)
+        let doubleToken = gestures.generation
+        assert(gestures.expire(doubleToken) && !gestures.expire(doubleToken))
+        gestures = TapGestures(double: 58, triple: 61)
+        assert(click(58, 2) == .none && click(58, 2.2) == .double)
+        assert(click(61, 3) == .none && click(61, 3.2) == .none && click(61, 3.4) == .triple)
+
+        let appPath = "/Applications/O'Brien.app"
+        let searchedApp = EditableLauncher(name: "Example", appName: appPath, iconMode: .appIcon, iconValue: appPath)
+        let binding = searchedApp.toConfig()
+        assert(binding.actionType == "app" && binding.targetPath == appPath && binding.icon == appPath)
+        assert(EditableLauncher.from(binding).appName == appPath && !binding.exec.isEmpty)
         print("Binding migration and double-tap checks passed")
     }
 }

@@ -14,7 +14,7 @@ internal sealed partial class PanelWindow : Window
     private readonly App app;
     private readonly StackPanel rows = new() { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock pageLabel = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly Grid root = new() { Padding = new Thickness(30, 0, 30, 0) };
+    private readonly Grid root = new();
     // Own initial keyboard focus without highlighting an action button.
     private readonly Button focusHost = new()
     {
@@ -39,10 +39,6 @@ internal sealed partial class PanelWindow : Window
     private UIElement? dragSurface;
     private Native.Point dragStart;
     private PointInt32 dragWindowStart;
-    private BindingRemoval? pendingRemoval;
-    private readonly TextBlock removalStatus = Ui.SecondaryText("");
-    private readonly Button undo = Ui.ActionButton(L.T("撤销"));
-    private readonly StackPanel removalBar = new() { Orientation = Orientation.Horizontal, Spacing = 12, Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center };
     private int page;
     private int renderedPage = -1;
     private string renderedLanguage = "";
@@ -53,6 +49,7 @@ internal sealed partial class PanelWindow : Window
     public PanelWindow(App app)
     {
         this.app = app; Title = App.DisplayName;
+        searchHistory = new SearchHistory(Path.Combine(Path.GetDirectoryName(app.Store.FilePath)!, "search-history.json"));
         Handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         SystemBackdrop = backdrop;
@@ -64,7 +61,7 @@ internal sealed partial class PanelWindow : Window
         focusCheck.Tick += (_, _) => CheckForeground();
         Closed += (_, _) => focusCheck.Stop();
         AppWindow.Changed += (_, e) => { if (e.DidSizeChange && visible) UpdateWindowShape(); };
-        AppWindow.IsShownInSwitchers = false;
+        AppWindow.IsShownInSwitchers = true;
         var presenter = (OverlappedPresenter)AppWindow.Presenter;
         presenter.SetBorderAndTitleBar(false, false); presenter.IsAlwaysOnTop = true;
         presenter.IsResizable = false; presenter.IsMaximizable = false; presenter.IsMinimizable = false;
@@ -73,10 +70,10 @@ internal sealed partial class PanelWindow : Window
         root.RowDefinitions.Add(new() { Height = new GridLength(76) });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new() { Height = new GridLength(46) });
-        var header = new Grid(); header.ColumnDefinitions.Add(new()); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var title = new DragPanel { Spacing = 12, Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Stretch, Background = new SolidColorBrush(Colors.Transparent) };
+        title.Margin = new Thickness(30, 0, 30, 0);
         title.Children.Add(Ui.AppIcon(34));
-        title.Children.Add(new TextBlock { Text = App.DisplayName, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        title.Children.Add(brandName);
         dragSurface = title;
         title.PointerPressed += (_, e) =>
         {
@@ -98,25 +95,16 @@ internal sealed partial class PanelWindow : Window
         };
         title.PointerReleased += (_, _) => StopDragging();
         title.PointerCaptureLost += (_, _) => dragging = false;
-        header.Children.Add(title);
-        var settings = new PointerButton { Content = new FontIcon { Glyph = "\uE713", FontSize = 19 }, Width = 42, Height = 38, Padding = new Thickness(0), CornerRadius = new CornerRadius(10), VerticalAlignment = VerticalAlignment.Center };
-        Ui.GlassButton(settings, false);
-        ToolTipService.SetToolTip(settings, L.T("设置"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(settings, L.T("设置"));
-        settings.Click += (_, _) => app.OpenSettings(); Grid.SetColumn(settings, 1); header.Children.Add(settings);
-        root.Children.Add(header); Grid.SetRow(rows, 1); root.Children.Add(rows);
-        var footer = new Grid(); footer.ColumnDefinitions.Add(new()); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        root.Children.Add(title);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 30, 0) };
+        var settings = HeaderButton("\uE713");
+        settings.Click += (_, _) => app.OpenSettings();
+        actions.Children.Add(searchButton); actions.Children.Add(settings);
+        Grid.SetRow(rows, 1); root.Children.Add(rows);
+        footer.Margin = new Thickness(30, 0, 30, 0);
+        footer.ColumnDefinitions.Add(new()); footer.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var footerHint = new TextBlock { Text = L.T("⌨  点击空键绑定 · 右键编辑 · 按键或点击启动"), Opacity = .75, FontSize = 12, VerticalAlignment = VerticalAlignment.Center }; footer.Children.Add(footerHint);
-        removalStatus.MaxWidth = 340; removalStatus.TextWrapping = TextWrapping.NoWrap;
-        removalStatus.TextTrimming = TextTrimming.CharacterEllipsis;
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(removalStatus, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
-        removalBar.Children.Add(removalStatus); removalBar.Children.Add(undo); footer.Children.Add(removalBar);
-        undo.Click += async (_, _) =>
-        {
-            if (app.BindingSavePending) return;
-            try { UndoRemoval(app.Save); }
-            catch (Exception ex) { await Ui.Error(root.XamlRoot, ex.Message); }
-        };
         var paging = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         previous = new PointerButton { Content = "←" }; next = new PointerButton { Content = "→" };
         Ui.GlassButton(previous, false); Ui.GlassButton(next, false);
@@ -141,13 +129,8 @@ internal sealed partial class PanelWindow : Window
         refreshLanguage = () =>
         {
             root.Language = app.Config.Language;
-            ((TextBlock)title.Children[1]).Text = App.DisplayName;
-            if (pendingRemoval != null && !pendingRemoval.CanRestore(app.Config)) pendingRemoval = null;
-            removalBar.Visibility = pendingRemoval != null ? Visibility.Visible : Visibility.Collapsed;
-            footerHint.Visibility = pendingRemoval != null ? Visibility.Collapsed : Visibility.Visible;
-            undo.Content = L.T("撤销");
-            removalStatus.Text = pendingRemoval != null ? L.F("已移除 {0}", pendingRemoval.Name) : "";
-            ToolTipService.SetToolTip(removalStatus, removalStatus.Text);
+            UpdateSearchLabels();
+            brandName.Text = App.DisplayName;
             footerHint.Text = L.T("⌨  点击空键绑定 · 右键编辑 · 按键或点击启动");
             closeHint.Text = L.T("Esc  关闭");
             ToolTipService.SetToolTip(settings, L.T("设置"));
@@ -155,6 +138,10 @@ internal sealed partial class PanelWindow : Window
             ToolTipService.SetToolTip(previous, L.T("上一页（←）"));
             ToolTipService.SetToolTip(next, L.T("下一页（→）"));
         };
+        InitializeSearch();
+        // Search controls stay interactive above the full-panel dismissal surface.
+        root.Children.Add(searchField);
+        root.Children.Add(actions);
         InitializeBindingDrag();
         Refresh();
     }
@@ -274,20 +261,11 @@ internal sealed partial class PanelWindow : Window
         return cell;
     }
 
-    internal bool CanUndoRemoval => pendingRemoval != null && removalBar.Visibility == Visibility.Visible;
     internal void RemoveBinding(int slot, Action<LauncherConfig> persist)
     {
-        var item = app.Config.At(slot);
-        if (item == null) return;
-        var removal = new BindingRemoval(slot, item);
+        if (app.Config.At(slot) == null) return;
         persist(app.Config.Bind(slot, null));
-        pendingRemoval = removal; Refresh();
-    }
-    internal void UndoRemoval(Action<LauncherConfig> persist)
-    {
-        var restored = pendingRemoval?.Restore(app.Config);
-        if (restored != null) persist(restored);
-        pendingRemoval = null; Refresh();
+        Refresh();
     }
 
     internal object[] KeyVisualsForSmokeTest() => rows.Children.Cast<StackPanel>()
@@ -297,10 +275,31 @@ internal sealed partial class PanelWindow : Window
             return new object[] { cell, button, cell.Children[1], ((Grid)button.Content).Children[0] };
         }).ToArray();
     public void Toggle() { if (editing || launching) return; if (visible) Hide(true); else Show(); }
+    internal void ShowFromTap(bool search)
+    {
+        if (editing || launching) return;
+        Show();
+        if (visible && app.Licensing.CanUse && search)
+        {
+            if (!Searching) OpenSearch();
+            else searchBox.Focus(FocusState.Keyboard);
+        }
+    }
+
     public void Show()
     {
         if (!app.Licensing.CanUse) { app.OpenLicenseSettings(); return; }
-        if (visible) return;
+        if (visible)
+        {
+            if (editing) return;
+            if (Native.IsIconic(Handle)) Native.ShowWindow(Handle, 9); // SW_RESTORE
+            if (Native.GetForegroundWindow() != Handle)
+            {
+                Activate();
+                Native.ActivatePanel(Handle);
+            }
+            return;
+        }
         var foreground = Native.GetForegroundWindow();
         Native.GetWindowThreadProcessId(foreground, out var pid);
         if (pid != Environment.ProcessId) previousWindow = foreground;
@@ -316,7 +315,7 @@ internal sealed partial class PanelWindow : Window
         // Activation can restore the old XAML focus after Show returns.
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
-            if (visible && !editing && Native.GetForegroundWindow() == Handle)
+            if (visible && !editing && !Searching && Native.GetForegroundWindow() == Handle)
                 focusHost.Focus(FocusState.Programmatic);
         });
         focusCheck.Start();
@@ -346,7 +345,7 @@ internal sealed partial class PanelWindow : Window
 
     private void CheckForeground()
     {
-        if (!visible || editing) return;
+        if (!visible || editing || Native.IsIconic(Handle)) return;
         var foreground = Native.GetForegroundWindow();
         // Ignore transient null focus and popup windows owned by this panel.
         if (foreground == 0 || foreground == Handle || Native.GetAncestor(foreground, 3) == Handle) return;
@@ -363,6 +362,7 @@ internal sealed partial class PanelWindow : Window
     {
         CancelBindingDrag();
         StopDragging();
+        CloseSearch(animate: false);
         focusCheck.Stop();
         visible = false; AppWindow.Hide();
         if (restore && Native.IsWindow(previousWindow)) Native.SetForegroundWindow(previousWindow);
@@ -371,7 +371,7 @@ internal sealed partial class PanelWindow : Window
     private void ChangePage(int direction) { CancelBindingDrag(); page = Math.Clamp(page + direction, 0, Math.Min(99, app.Config.PageCount)); Refresh(); }
     internal async void HandleNativeKey(uint key, uint scanCode)
     {
-        if (!visible || editing || launching) return;
+        if (!visible || editing || launching || Searching) return;
         if (bindingSurface != null) { if (key == 0x1B) CancelBindingDrag(); return; }
         if (key == 0x1B) { Hide(true); return; }
         if (key is 0x25 or 0x27) { ChangePage(key == 0x25 ? -1 : 1); return; }
@@ -381,6 +381,16 @@ internal sealed partial class PanelWindow : Window
     private async void HandleKey(object sender, KeyRoutedEventArgs e)
     {
         if (editing || launching || !visible) return;
+        if (Searching)
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape && !composingSearch)
+            {
+                e.Handled = true;
+                CloseSearch();
+                searchButton.Focus(FocusState.Keyboard);
+            }
+            return;
+        }
         if (bindingSurface != null) { e.Handled = true; if (e.Key == Windows.System.VirtualKey.Escape) CancelBindingDrag(); return; }
         if (e.Key == Windows.System.VirtualKey.Escape) { e.Handled = true; Hide(true); return; }
         if (Native.Modifiers != 0) return;
@@ -410,10 +420,10 @@ internal sealed partial class PanelWindow : Window
         return Launch(launcher);
     }
 
-    private async Task Launch(Launcher launcher)
+    private async Task<bool> Launch(Launcher launcher)
     {
-        if (!app.Licensing.CanUse) { app.OpenLicenseSettings(); return; }
-        if (launching) return;
+        if (!app.Licensing.CanUse) { app.OpenLicenseSettings(); return false; }
+        if (launching) return false;
         launching = true;
         bool sendsShortcut = !string.IsNullOrWhiteSpace(launcher.KeyboardShortcut);
         // Start shell activation while we still own the foreground; restoring the
@@ -423,8 +433,9 @@ internal sealed partial class PanelWindow : Window
         {
             await ActionRunner.Run(launcher, previousWindow, () => app.HasPressedKeys, () => Hide(false));
             if (!sendsShortcut && visible) Hide(false);
+            return true;
         }
-        catch (Exception ex) { Show(); await Ui.Error(root.XamlRoot, ex.Message); }
+        catch (Exception ex) { Show(); await Ui.Error(root.XamlRoot, ex.Message); return false; }
         finally { launching = false; }
     }
 }

@@ -15,7 +15,8 @@ internal sealed class DesktopIntegration : IDisposable
     private readonly object inputState = new();
     private Native.NotifyIconData tray;
     private readonly uint taskbarCreated = Native.RegisterWindowMessageW("TaskbarCreated");
-    private readonly DoubleModifierTap doubleTap = new();
+    private readonly ModifierTapGestures taps = new();
+    private string doubleAction = "toggle", tripleAction = "search";
     private readonly HashSet<uint> down = [], swallowed = [];
     private Hotkey? shortcut;
     private bool suppress, disposed, suspended;
@@ -32,7 +33,7 @@ internal sealed class DesktopIntegration : IDisposable
     {
         lock (inputState)
         {
-            recordingWindow = window; recordingCallback = callback; recordingCancelled = cancelled; recordingModifierOnly = modifierOnly; recordingModifier = 0; doubleTap.Reset();
+            recordingWindow = window; recordingCallback = callback; recordingCancelled = cancelled; recordingModifierOnly = modifierOnly; recordingModifier = 0; taps.Reset();
         }
     }
     public void EndRecording(nint window)
@@ -43,17 +44,18 @@ internal sealed class DesktopIntegration : IDisposable
             // Suppressed presses never entered OS state. Do not carry them
             // into normal double-tap detection after recording loses focus.
             down.ExceptWith(swallowed);
-            recordingCallback = null; recordingCancelled = null; recordingWindow = 0; recordingModifier = 0; doubleTap.Reset();
+            recordingCallback = null; recordingCancelled = null; recordingWindow = 0; recordingModifier = 0; taps.Reset();
         }
     }
     public bool IsAnyKeyDown { get { lock (inputState) return down.Count != 0; } }
     public bool Suspended
     {
         get { lock (inputState) return suspended; }
-        set { lock (inputState) { suspended = value; doubleTap.Reset(); } }
+        set { lock (inputState) { suspended = value; taps.Reset(); } }
     }
-    public event Action? Toggle, TrayMenuRequested;
+    public event Action? Toggle, TrayOpenRequested, TrayMenuRequested;
     public event Action<uint, uint>? PanelKeyPressed;
+    public event Action<bool>? TapOpenRequested;
     internal Action<string>? DoubleTapDiagnostic;
 
     public DesktopIntegration(nint window, DispatcherQueue queue)
@@ -69,7 +71,7 @@ internal sealed class DesktopIntegration : IDisposable
             // MSIX keeps its package-managed identity. Unpackaged builds all
             // run from LocalInstallation and reuse this GUID, including tests.
             if (!StoreIntegration.IsPackaged) { tray.Flags |= 0x20; tray.Guid = LocalInstallation.TrayIconGuid; }
-            if (!Native.Shell_NotifyIconW(0, ref tray)) throw new Win32Exception(L.T("无法创建托盘图标。"));
+            if (!RegisterTrayIcon()) throw new Win32Exception(L.T("无法创建托盘图标。"));
         }
         catch { Dispose(); throw; }
     }
@@ -88,19 +90,31 @@ internal sealed class DesktopIntegration : IDisposable
                 Native.UnregisterHotKey(hwnd, hotkeyId);
                 hotkeyId = newId; shortcut = next; suppress = config.SuppressSystemShortcut;
             }
-            doubleTap.Modifier = config.DoubleTapKey;
-            doubleTap.Reset();
+            taps.Configure(config.DoubleTapKey, config.TripleTapKey);
+            doubleAction = config.DoubleTapAction;
+            tripleAction = config.TripleTapAction;
         }
+    }
+
+    private bool modernTray;
+    private bool RegisterTrayIcon()
+    {
+        if (!Native.Shell_NotifyIconW(0, ref tray)) return false;
+        tray.Version = 4;
+        modernTray = Native.Shell_NotifyIconW(4, ref tray); // NIM_SETVERSION
+        return true;
     }
 
     private nint WindowMessage(nint window, uint message, nint wParam, nint lParam, nuint id, nuint data)
     {
-        if (message == taskbarCreated) Native.Shell_NotifyIconW(0, ref tray);
+        if (message == taskbarCreated) RegisterTrayIcon();
         if (message == 0x312 && (int)wParam == hotkeyId && !Suspended) dispatcher.TryEnqueue(() => Toggle?.Invoke());
         if (message == 0x8001)
         {
-            if ((uint)lParam == 0x202) dispatcher.TryEnqueue(() => Toggle?.Invoke());
-            if ((uint)lParam is 0x205 or 0x7B) dispatcher.TryEnqueue(() => TrayMenuRequested?.Invoke());
+            var notification = (uint)lParam & 0xffff;
+            if (modernTray ? notification is 0x400 or 0x401 : notification == 0x202)
+                dispatcher.TryEnqueue(() => TrayOpenRequested?.Invoke());
+            if (notification == (modernTray ? 0x7B : 0x205)) dispatcher.TryEnqueue(() => TrayMenuRequested?.Invoke());
         }
         return Native.DefSubclassProc(window, message, wParam, lParam);
     }
@@ -128,7 +142,7 @@ internal sealed class DesktopIntegration : IDisposable
         lock (inputState)
             return System.Text.Json.JsonSerializer.Serialize(new
             {
-                DoubleTapKey = doubleTap.Modifier, Suspended = suspended,
+                DoubleTapKey = taps.DoubleKey, Suspended = suspended,
                 Recording = recordingCallback != null, HeldKeyCount = down.Count,
                 StaleUnsuppressedKeyCount = down.Count(key => !swallowed.Contains(key) && !Native.Down((int)key)),
                 KeyboardEventCount = Interlocked.Read(ref keyboardEvents),
@@ -175,7 +189,7 @@ internal sealed class DesktopIntegration : IDisposable
         if (PressedKeyState.ReconcileBeforeEvent(down, swallowed, key.Key, isDown, pressed => Native.Down((int)pressed)))
         {
             repairedStates++;
-            doubleTap.Reset();
+            taps.Reset();
         }
         bool repeat = isDown && !down.Add(key.Key);
         if (!isDown) down.Remove(key.Key);
@@ -183,7 +197,7 @@ internal sealed class DesktopIntegration : IDisposable
         // Use hook state: suppressed modifier presses never reach GetAsyncKeyState.
         if (recordingCallback is { } callback && Native.GetForegroundWindow() == recordingWindow)
         {
-            doubleTap.Reset();
+            taps.Reset();
             if (isDown)
             {
                 swallowed.Add(key.Key);
@@ -223,22 +237,26 @@ internal sealed class DesktopIntegration : IDisposable
         }
         // Pair swallowed key-downs with their releases even if settings changed meanwhile.
         if (!isDown && swallowed.Remove(key.Key)) return 1;
-        if (Suspended) doubleTap.Reset();
+        if (Suspended) taps.Reset();
         else
         {
             if (isDown && Native.GetForegroundWindow() == hwnd &&
                 (key.Key == 0x1B || (Native.Modifiers == 0 && (key.Key is 0x25 or 0x27 || KeyboardLayout.Slot((int)key.ScanCode, 0) >= 0))))
             {
                 if (!repeat) dispatcher.TryEnqueue(() => PanelKeyPressed?.Invoke(key.Key, key.ScanCode));
-                doubleTap.Reset(); swallowed.Add(key.Key); return 1;
+                taps.Reset(); swallowed.Add(key.Key); return 1;
             }
-            uint selectedModifier = doubleTap.Modifier switch { "control" or "leftControl" or "rightControl" => 2u, "alt" or "leftAlt" or "rightAlt" => 1u, "shift" or "leftShift" or "rightShift" => 4u, _ => 0u };
-            bool other = (Native.Modifiers & ~selectedModifier) != 0 || down.Any(pressed => pressed != key.Key);
-            var fired = doubleTap.Handle(key.Key, isDown, key.Time, repeat, other);
+            uint ownModifier = key.Key switch { 0xA2 or 0xA3 => 2u, 0xA4 or 0xA5 => 1u, 0xA0 or 0xA1 => 4u, _ => 0u };
+            bool other = (Native.Modifiers & ~ownModifier) != 0 || down.Any(pressed => pressed != key.Key);
+            long now = Environment.TickCount64;
+            long eventTime = now - unchecked((uint)now - key.Time);
+            var fired = taps.Handle(key.Key, isDown, eventTime, repeat, other);
             if (key.Key is >= 0xA0 and <= 0xA5 or 0x20)
                 lastModifierDecision = $"repeat={repeat} other={other} fired={fired}";
             DoubleTapDiagnostic?.Invoke($"key={key.Key:X} down={isDown} mods={Native.Modifiers} other={other} repeat={repeat} fired={fired} held={string.Join(",", down)}");
-            if (fired) dispatcher.TryEnqueue(() => Toggle?.Invoke());
+            if (fired == TapDecision.Double) QueueTapAction(doubleAction);
+            else if (fired == TapDecision.WaitForThird) _ = CompleteDoubleTap(taps.Generation, eventTime);
+            else if (fired == TapDecision.Triple) QueueTapAction(tripleAction);
             if (suppress && shortcut is Hotkey hotkey && isDown && key.Key == hotkey.Key && Native.Modifiers == hotkey.Modifiers)
             {
                 if (!repeat) dispatcher.TryEnqueue(() => Toggle?.Invoke());
@@ -248,10 +266,26 @@ internal sealed class DesktopIntegration : IDisposable
         return 0;
     }
 
+    private void QueueTapAction(string action)
+    {
+        if (action == "toggle") dispatcher.TryEnqueue(() => Toggle?.Invoke());
+        else dispatcher.TryEnqueue(() => TapOpenRequested?.Invoke(action == "search"));
+    }
+
+    private async Task CompleteDoubleTap(long generation, long releasedAt)
+    {
+        var remaining = Math.Max(1, releasedAt + ModifierTapGestures.GapMs + 1 - Environment.TickCount64);
+        await Task.Delay(TimeSpan.FromMilliseconds(remaining)).ConfigureAwait(false);
+        lock (inputState)
+        {
+            if (!disposed && taps.Expire(generation)) QueueTapAction(doubleAction);
+        }
+    }
+
     private nint MouseMessage(int code, nint wParam, nint lParam)
     {
         lock (inputState)
-            if (code >= 0 && (uint)wParam is 0x201 or 0x204 or 0x207 or 0x20B) doubleTap.Reset();
+            if (code >= 0 && (uint)wParam is 0x201 or 0x204 or 0x207 or 0x20B) taps.Reset();
         return Native.CallNextHookEx(0, code, wParam, lParam);
     }
 

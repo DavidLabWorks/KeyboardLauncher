@@ -4,6 +4,9 @@ import Cocoa
 struct LaunchpickConfig: Codable {
     var shortcut: String
     var doubleTapKey: String?
+    var tripleTapKey: String?
+    var doubleTapAction: String?
+    var tripleTapAction: String?
     var suppressSystemShortcut: Bool?
     var spotlightShortcut: String?
     var columns: Int?

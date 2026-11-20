@@ -15,7 +15,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var bindingCloseObserver: NSObjectProtocol?
     private(set) var settingsWindow: NSWindow?
     private var settingsCloseObserver: NSObjectProtocol?
-    private var doubleTap = DoubleTapShortcut()
+    private var taps = TapGestures()
+    private var doubleAction = "toggle", tripleAction = "search"
+    private var tapTimeout: DispatchWorkItem?
 
     private var recordedKeyAwaitingRelease: Int64?
     private var eventTap: CFMachPort?
@@ -65,6 +67,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.hidePanel()
         }
 
+        state.search.onOpen = { [weak self] app in
+            guard let self else { return }
+            self.hidePanel(restorePreviousApp: false)
+            NSWorkspace.shared.openApplication(at: app.url, configuration: .init()) { running, error in
+                DispatchQueue.main.async {
+                    if running != nil { self.state.search.record(app) }
+                    else if let error { NSApp.presentError(error) }
+                }
+            }
+        }
+        state.onBindApplication = { [weak self] app, slot in
+            guard let self, !self.state.isMoving else { return false }
+            let saved = LaunchpickConfig.update { config in
+                guard !config.launchers.enumerated().contains(where: { ($0.element.keyIndex ?? $0.offset) == slot }) else { return false }
+                let draft = EditableLauncher(name: app.name, appName: app.url.path,
+                                             iconMode: .appIcon, iconValue: app.url.path)
+                config.bind(draft.toConfig(), to: slot)
+                return true
+            }
+            if saved { self.reloadLaunchers() }
+            return saved
+        }
         state.onSettings = { [weak self] in self?.openSettings() }
 
         state.onBind = { [weak self] launcher, slot in
@@ -135,7 +159,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func loadLauncherShortcut(from config: LaunchpickConfig) {
         let parsed = LaunchpickConfig.parseShortcutForSymbolicHotKey(config.shortcut)
-        doubleTap = DoubleTapShortcut(keyCode: config.doubleTapKey.flatMap { UInt16($0.split(separator: ":").first ?? "") })
+        func code(_ key: String?) -> UInt16? { key?.split(separator: ":").first.flatMap { UInt16($0) } }
+        tapTimeout?.cancel()
+        taps = TapGestures(double: code(config.doubleTapKey), triple: code(config.tripleTapKey))
+        doubleAction = config.doubleTapAction ?? "toggle"
+        tripleAction = config.tripleTapAction ?? "search"
         launcherKeyCode = Int64(parsed.keyCode)
         launcherModifiers = CGEventFlags(rawValue: UInt64(parsed.modifiers))
         suppressSystemShortcut = LaunchpickConfig.parseShortcut(config.shortcut) != nil && (config.suppressSystemShortcut ?? false)
@@ -151,6 +179,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleLaunchpickHotKey() {
         togglePanel()
+    }
+
+    private func dispatchTap(_ decision: TapGestures.Decision) {
+        switch decision {
+        case .none: break
+        case .wait:
+            let token = taps.generation
+            tapTimeout?.cancel()
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let self, self.taps.expire(token) else { return }
+                self.performTap(self.doubleAction)
+            }
+            tapTimeout = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: timeout)
+        case .double, .triple:
+            let action = decision == .double ? doubleAction : tripleAction
+            DispatchQueue.main.async { [weak self] in self?.performTap(action) }
+        }
+    }
+
+    private func performTap(_ action: String) {
+        guard bindingEditorPanel == nil else { return }
+        if action == "toggle" { togglePanel(); return }
+        if !panel.isVisible { showPanel() }
+        else { NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil) }
+        if action == "search" { state.search.open() }
     }
 
     // MARK: - Menu setup
@@ -203,7 +257,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let showItem = NSMenuItem(title: L("Show Keyboard Launcher"), action: #selector(togglePanel), keyEquivalent: "")
+        let showItem = NSMenuItem(title: L("Show Keyboard Launcher"), action: #selector(openPanelFromMenu), keyEquivalent: "")
         showItem.target = self
         menu.addItem(showItem)
 
@@ -330,11 +384,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 exec: configItem.exec,
                 icon: EditableLauncher.from(configItem).resolvedIcon(),
                 keyboardShortcut: configItem.keyboardShortcut,
-                targetPath: configItem.actionType == "file" || configItem.actionType == "folder" ? configItem.targetPath : nil
+                targetPath: ["file", "folder", "app"].contains(configItem.actionType ?? "") ? configItem.targetPath : nil
             )
         }
         state.keyboardPage = min(state.keyboardPage, state.pageCount - 1)
     }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if bindingEditorPanel != nil { bindingEditorPanel?.makeKeyAndOrderFront(nil) }
+        else { performTap("panel") }
+        return true
+    }
+
+    @objc private func openPanelFromMenu() { performTap("panel") }
 
     @objc func togglePanel() {
         if panel.isVisible {
@@ -379,7 +441,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self = self else { return event }
             guard event.window === self.panel, self.state.editingSlot == nil else { return event }
             if event.type != .keyDown {
-                return self.panel.dragHeader(with: event) ? nil : event
+                return !self.state.search.isOpen && self.panel.dragHeader(with: event) ? nil : event
+            }
+            if self.state.search.isOpen {
+                if (self.panel.firstResponder as? NSTextView)?.hasMarkedText() == true { return event }
+                return self.state.search.handle(event.keyCode) ? nil : event
             }
             if event.keyCode == 53 {
                 self.hidePanel()
@@ -414,6 +480,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard panel.isVisible else { return }
         let appToRestore = previousApp
         previousApp = nil
+        state.search.close()
         panel.cancelHeaderDrag()
         state.draggingSlot = nil
         panel.orderOut(nil)
@@ -552,7 +619,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func handleRecordingTap(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             recordedKeyAwaitingRelease = nil
-            doubleTap.reset()
+            taps.reset()
             if let recordingTap { CGEvent.tapEnable(tap: recordingTap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
@@ -561,7 +628,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if interceptShortcutRecording(type: type, event: event,
                                       recorder: NSApp.keyWindow?.firstResponder as? ShortcutRecorderNSView) {
-            doubleTap.reset()
+            taps.reset()
             return nil
         }
         return Unmanaged.passUnretained(event)
@@ -571,7 +638,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Keep it minimal. All heavy work (AX operations) dispatched to background.
     private func handleEventTap(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            doubleTap.reset()
+            taps.reset()
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
@@ -588,27 +655,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let modifierFlags: [UInt16: CGEventFlags] = [58: .maskAlternate, 61: .maskAlternate,
             55: .maskCommand, 54: .maskCommand, 59: .maskControl, 62: .maskControl,
             56: .maskShift, 60: .maskShift, 63: .maskSecondaryFn, 57: .maskAlphaShift]
-        if state.editingSlot != nil || (NSApp.keyWindow?.firstResponder as? ShortcutRecorderNSView)?.isRecording == true ||
+        let typingInSearch = state.search.isOpen && panel.isKeyWindow && (type == .keyDown || type == .keyUp)
+        if typingInSearch || state.editingSlot != nil || (NSApp.keyWindow?.firstResponder as? ShortcutRecorderNSView)?.isRecording == true ||
             [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(type) {
-            doubleTap.reset()
+            taps.reset()
         } else if [.keyDown, .keyUp, .flagsChanged].contains(type) {
             let code = UInt16(keyCode)
-            let allowed = doubleTap.keyCode.flatMap { modifierFlags[$0] } ?? []
+            let allowed = modifierFlags[code] ?? []
             let otherModifiers = flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).subtracting(allowed)
             let time = Double(event.timestamp) / 1_000_000_000
             // Caps Lock reports its toggled state, rather than a physical release.
             let capsLockPress = type == .flagsChanged && code == 57
             if capsLockPress {
-                _ = doubleTap.handle(keyCode: code, isDown: true, time: time,
-                                     hasOtherModifiers: !otherModifiers.isEmpty)
+                dispatchTap(taps.handle(keyCode: code, isDown: true, time: time,
+                                     hasOtherModifiers: !otherModifiers.isEmpty))
             }
             let isDown = capsLockPress ? false : (type == .flagsChanged ? flags.contains(modifierFlags[code] ?? []) : type == .keyDown)
-            if doubleTap.handle(keyCode: code, isDown: isDown,
+            dispatchTap(taps.handle(keyCode: code, isDown: isDown,
                                 time: time,
                                 isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
-                                hasOtherModifiers: !otherModifiers.isEmpty) {
-                DispatchQueue.main.async { [weak self] in self?.handleLaunchpickHotKey() }
-            }
+                                hasOtherModifiers: !otherModifiers.isEmpty))
         }
 
         if type == .keyDown {

@@ -300,6 +300,60 @@ Check("Double Control requires isolated short presses", () =>
     tap.Reset(); tap.Handle(0xA2, true, 2000, false, false); Assert(!tap.Handle(0xA2, false, 2400, false, false));
     tap.Handle(0xA2, true, 2500, false, false); Assert(!tap.Handle(0xA2, false, 2550, false, false));
 });
+
+Check("Overlapping double and triple taps dispatch exactly one action", () =>
+{
+    var taps = new ModifierTapGestures();
+    taps.Configure("control", "leftControl");
+    TapDecision Click(uint key, long time)
+    {
+        Assert(taps.Handle(key, true, time, false, false) == TapDecision.None);
+        return taps.Handle(key, false, time + 40, false, false);
+    }
+    Assert(Click(0xA3, 0) == TapDecision.None && Click(0xA3, 120) == TapDecision.Double);
+    Assert(Click(0xA2, 300) == TapDecision.None && Click(0xA2, 400) == TapDecision.WaitForThird);
+    long first = taps.Generation;
+    Assert(taps.Expire(first) && !taps.Expire(first));
+    Assert(Click(0xA2, 1000) == TapDecision.None && Click(0xA2, 1100) == TapDecision.WaitForThird);
+    long second = taps.Generation;
+    Assert(!taps.Expire(first));
+    Assert(taps.Handle(0xA2, true, 1520, false, false) == TapDecision.None && !taps.Expire(second));
+    Assert(taps.Handle(0xA2, false, 1600, false, false) == TapDecision.Triple && !taps.Expire(second));
+    Assert(Click(0xA2, 2000) == TapDecision.None && Click(0xA2, 2100) == TapDecision.WaitForThird);
+    long cancelled = taps.Generation;
+    taps.Reset();
+    Assert(!taps.Expire(cancelled) && Click(0xA2, 2200) == TapDecision.None);
+    taps.Configure(null, "space");
+    Assert(Click(32, 3000) == TapDecision.None && Click(32, 3120) == TapDecision.None && Click(32, 3280) == TapDecision.Triple);
+    Assert(Click(32, 4000) == TapDecision.None && Click(32, 4120) == TapDecision.None);
+    taps.Handle(32, true, 4300, false, false);
+    Assert(taps.Handle(32, false, 4800, false, false) == TapDecision.None);
+});
+
+Check("Triple tap settings default off and round-trip", () =>
+{
+    Assert(System.Text.Json.JsonSerializer.Deserialize<LauncherConfig>("{}")!.TripleTapKey == null);
+    var config = LauncherConfig.Default() with { TripleTapKey = "rightShift", TripleTapAction = "panel" };
+    config.Validate();
+    var json = System.Text.Json.JsonSerializer.Serialize(config, ConfigStore.JsonOptions);
+    var loaded = System.Text.Json.JsonSerializer.Deserialize<LauncherConfig>(json, ConfigStore.JsonOptions)!;
+    Assert(loaded.TripleTapAction == "panel" && loaded.TripleTapKey == "rightShift");
+    Throws(() => (config with { TripleTapKey = "enter" }).Validate());
+    Throws(() => (config with { TripleTapAction = "other" }).Validate());
+});
+
+Check("Existing configurations keep double-tap toggle and new choices round-trip", () =>
+{
+    Assert(System.Text.Json.JsonSerializer.Deserialize<LauncherConfig>("{}")!.DoubleTapAction == "toggle");
+    foreach (var action in new[] { "toggle", "panel", "search" })
+    {
+        var config = LauncherConfig.Default() with { DoubleTapAction = action };
+        config.Validate();
+        var json = System.Text.Json.JsonSerializer.Serialize(config, ConfigStore.JsonOptions);
+        Assert(System.Text.Json.JsonSerializer.Deserialize<LauncherConfig>(json, ConfigStore.JsonOptions)!.DoubleTapAction == action);
+    }
+    Throws(() => (LauncherConfig.Default() with { DoubleTapAction = "other" }).Validate());
+});
 Check("Repeat, other modifiers, opposite Control and mouse reset cancel double tap", () =>
 {
     foreach (var mode in new[] { "repeat", "modifier", "opposite", "mouse", "timeout" })

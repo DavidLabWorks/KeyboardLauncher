@@ -229,7 +229,8 @@ internal sealed class SettingsWindow : Window
         var row = new Grid { ColumnSpacing = 24, MinHeight = 44 };
         row.ColumnDefinitions.Add(new()); row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var label = new StackPanel { Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
-        label.Children.Add(new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium }); label.Children.Add(Note(description));
+        label.Children.Add(new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Medium });
+        if (description.Length > 0) label.Children.Add(Note(description));
         row.Children.Add(label);
         control.HorizontalAlignment = HorizontalAlignment.Right;
         if (control is ToggleSwitch toggle)
@@ -391,25 +392,27 @@ internal sealed class SettingsWindow : Window
             Save(app.Config with { Shortcut = value ?? "" });
             return app.Config.Shortcut;
         });
-        var clear = SettingsButton(L.T("清空")); clear.MinHeight = 44; clear.MinWidth = 64;
-        void RefreshShortcut() => clear.IsEnabled = !string.IsNullOrWhiteSpace(shortcut.Value);
-        shortcut.ValueChanged += RefreshShortcut;
-        clear.Click += (_, _) => shortcut.Clear();
-        RefreshShortcut();
-        var shortcutRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        shortcutRow.Children.Add(shortcut); shortcutRow.Children.Add(clear);
         var doubleTap = new ShortcutCapture(app, this, true, L.T("双击按键"), app.Config.DoubleTapKey, value =>
         {
             Save(app.Config with { DoubleTapKey = value });
             return app.Config.DoubleTapKey;
         });
-        var clearDoubleTap = SettingsButton(L.T("清空")); clearDoubleTap.MinHeight = 44; clearDoubleTap.MinWidth = 64;
-        void RefreshDoubleTap() => clearDoubleTap.IsEnabled = !string.IsNullOrWhiteSpace(doubleTap.Value);
-        doubleTap.ValueChanged += RefreshDoubleTap;
-        clearDoubleTap.Click += (_, _) => doubleTap.Clear();
-        RefreshDoubleTap();
-        var doubleTapRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        doubleTapRow.Children.Add(doubleTap); doubleTapRow.Children.Add(clearDoubleTap);
+        var tripleTap = new ShortcutCapture(app, this, true, L.T("三击按键"), app.Config.TripleTapKey, value =>
+        {
+            Save(app.Config with { TripleTapKey = value });
+            return app.Config.TripleTapKey;
+        });
+        StackPanel CaptureRow(ShortcutCapture capture)
+        {
+            var clear = SettingsButton(L.T("清空")); clear.MinHeight = 44; clear.MinWidth = 64;
+            void RefreshClear() => clear.IsEnabled = !string.IsNullOrWhiteSpace(capture.Value);
+            capture.ValueChanged += RefreshClear;
+            clear.Click += (_, _) => capture.Clear();
+            RefreshClear();
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+            row.Children.Add(capture); row.Children.Add(clear);
+            return row;
+        }
         static StackPanel Setting(string title, string description, FrameworkElement control)
         {
             var group = new StackPanel { Spacing = 12 };
@@ -419,13 +422,33 @@ internal sealed class SettingsWindow : Window
             Grid.SetColumn(control, 1); row.Children.Add(control);
             group.Children.Add(row); group.Children.Add(Note(description)); return group;
         }
-        var normal = Setting(L.T("键盘快捷键"), L.T("点击录入器后按下组合键，松开后保存。"), shortcutRow);
-        var doubleGroup = Setting(L.T("双击按键"), L.T("点击录入器后按下 Ctrl、Alt、Shift 或 Space；修饰键区分左右。"), doubleTapRow);
-        doubleGroup.Children.Add(Note(L.T("连续按两次录入的按键以显示或隐藏；清空后关闭。")));
-        var help = new Expander { Header = L.T("双击检测规则"), HorizontalAlignment = HorizontalAlignment.Stretch,
-            Content = Note(L.T("仅响应所选侧的按键；选择任意一侧时，两次须为同一侧。长按、组合键和鼠标点击会取消检测。")) };
-        doubleGroup.Children.Add(help);
-        Section(L.T("快捷键"), normal, doubleGroup);
+        var normal = Setting(L.T("键盘快捷键"), L.T("点击录入器后按下组合键，松开后保存。"), CaptureRow(shortcut));
+        var doubleGroup = Setting(L.T("双击按键"), L.T("点击录入器后按下 Ctrl、Alt、Shift 或 Space；修饰键区分左右。"), CaptureRow(doubleTap));
+        static ComboBox ActionPicker(string label, string selected, string[] values, Action<string> changed)
+        {
+            var picker = new PointerComboBox { MinWidth = 228 };
+            foreach (var value in values)
+                picker.Items.Add(L.T(value switch { "toggle" => "显示或隐藏面板", "panel" => "打开面板", _ => "打开面板并聚焦搜索" }));
+            picker.SelectedIndex = Array.IndexOf(values, selected);
+            picker.SelectionChanged += (_, _) => { if (picker.SelectedIndex >= 0) changed(values[picker.SelectedIndex]); };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(picker, label);
+            return picker;
+        }
+        var doubleAction = ActionPicker(L.T("双击动作"), app.Config.DoubleTapAction, ["toggle", "panel", "search"],
+            value => Save(app.Config with { DoubleTapAction = value }));
+        doubleGroup.Children.Add(Row(L.T("双击动作"), L.T("连续轻按两次执行所选动作；清空按键即可关闭双击。"), doubleAction));
+        var tripleGroup = Setting(L.T("三击按键"), L.T("连续轻按同一个键三次；清空按键即可关闭三击。"), CaptureRow(tripleTap));
+        var action = ActionPicker(L.T("三击动作"), app.Config.TripleTapAction, ["panel", "search"],
+            value => Save(app.Config with { TripleTapAction = value }));
+        tripleGroup.Children.Add(Row(L.T("三击动作"), "", action));
+        var timingHint = Note(L.F("双击松开后会等待 {0} 毫秒，期间再次轻按同一键即可触发三击。", ModifierTapGestures.GapMs));
+        void RefreshTimingHint() => timingHint.Visibility = DoubleModifierTap.KeysOverlap(doubleTap.Value, tripleTap.Value)
+            ? Visibility.Visible : Visibility.Collapsed;
+        doubleTap.ValueChanged += RefreshTimingHint;
+        tripleTap.ValueChanged += RefreshTimingHint;
+        RefreshTimingHint();
+        tripleGroup.Children.Add(timingHint);
+        Section(L.T("快捷键"), normal, doubleGroup, tripleGroup);
     }
     private void SystemSettings()
     {

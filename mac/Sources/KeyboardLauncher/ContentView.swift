@@ -17,6 +17,8 @@ class LaunchpickState: ObservableObject {
             if oldValue != editingSlot { onEditingChanged?() }
         }
     }
+    let search = ApplicationSearch()
+    var onBindApplication: ((LocalApplication, Int) -> Bool)?
     var onEditingChanged: (() -> Void)?
 
     var onLaunch: ((LaunchpickItem) -> Void)?
@@ -66,6 +68,18 @@ struct LaunchpickItem: Identifiable {
 struct ContentView: View {
     @Environment(\.locale) private var locale
     @ObservedObject var state: LaunchpickState
+    @ObservedObject private var search: ApplicationSearch
+    @FocusState private var searchFocused: Bool
+    @State private var appDrag: LocalApplication?
+    @State private var appDragPoint = CGPoint.zero
+    @State private var appKeyFrames: [Int: CGRect] = [:]
+    @State private var bindFailed = false
+
+    init(state: LaunchpickState) {
+        self.state = state
+        self.search = state.search
+    }
+
     @State private var unbindFailed = false
     @State private var dragLocation = CGPoint.zero
     @State private var keyFrames: [Int: CGRect] = [:]
@@ -79,12 +93,22 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     Image(nsImage: IconResolver.appIcon)
                         .resizable().scaledToFit().frame(width: 34, height: 34)
-                    Text(verbatim: L("Keyboard Launcher")).font(.system(size: 15, weight: .semibold))
+                    if !search.isOpen {
+                        Text(verbatim: L("Keyboard Launcher")).font(.system(size: 15, weight: .semibold))
+                            .transition(.opacity)
+                    }
                     Spacer()
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .interactionPointer(draggable: true)
+                Button { search.isOpen ? search.close() : search.open() } label: {
+                    Image(systemName: search.isOpen ? "xmark" : "magnifyingglass")
+                        .frame(width: 42, height: 38)
+                        .background(Color(nsColor: .launcherControlBackground), in: RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain).interactionPointer()
+                .accessibilityLabel(Text(verbatim: L(search.isOpen ? "Close search" : "Search applications")))
                 Button { state.onSettings?() } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 19, weight: .medium))
@@ -141,15 +165,132 @@ struct ContentView: View {
                 VisualEffectBackground().allowsHitTesting(false)
             }
         }
+        .overlay(alignment: .top) {
+            if search.isOpen {
+                GeometryReader { geo in
+                    ZStack(alignment: .top) {
+                        Color.clear.contentShape(Rectangle()).onTapGesture { search.close() }
+                            .accessibilityHidden(true)
+                        searchOverlay
+                            .frame(width: min(740, max(150, geo.size.width - 236)))
+                            .padding(.top, 16)
+                            .opacity(appDrag == nil ? 1 : 0)
+                        if let app = appDrag {
+                            let target = Self.dropSlot(at: appDragPoint, frames: appKeyFrames)
+                            if let target, let rect = appKeyFrames[target],
+                               !state.launchers.contains(where: { $0.slot == target }) {
+                                RoundedRectangle(cornerRadius: 16).stroke(Color.accentColor, lineWidth: 2)
+                                    .frame(width: rect.width, height: rect.width)
+                                    .position(x: rect.midX, y: rect.minY + rect.width / 2)
+                            }
+                            HStack {
+                                Image(nsImage: app.icon).resizable().frame(width: 28, height: 28)
+                                Text(verbatim: app.name)
+                            }
+                            .padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+                            .shadow(radius: 5).position(x: appDragPoint.x, y: appDragPoint.y - 26)
+                            .allowsHitTesting(false)
+                        }
+                    }
+                }
+                .transition(.opacity.combined(with: .offset(y: -5)))
+            }
+        }
+        .coordinateSpace(name: "launcherPanel")
+        .onPreferenceChange(ApplicationKeyFrames.self) { appKeyFrames = $0 }
+        .onChange(of: search.isOpen) { open in
+            if !open { appDrag = nil; NSCursor.arrow.set() }
+        }
+        .onChange(of: search.focusRequest) { _ in searchFocused = true }
+        .animation(.easeOut(duration: 0.16), value: search.isOpen)
         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
             .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
+        .alert("Could not bind this application.", isPresented: $bindFailed) { Button("OK", role: .cancel) {} }
         .alert("Could not move binding. Check that the configuration folder is writable.", isPresented: $state.moveFailed) {
             Button("OK", role: .cancel) {}
         }
         .alert("Could not remove binding. Check that the configuration folder is writable.", isPresented: $unbindFailed) {
             Button("OK", role: .cancel) {}
         }
+    }
+
+    private var searchOverlay: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search applications", text: $search.query)
+                    .font(.system(size: 19)).textFieldStyle(.plain).focused($searchFocused)
+                    .onAppear { DispatchQueue.main.async { searchFocused = true } }
+            }
+            .padding(.horizontal, 18).frame(height: 44)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13))
+            VStack(alignment: .leading, spacing: 8) {
+                if !search.suggestions.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(Array(search.suggestions.enumerated()), id: \.element.id) { i, app in
+                            searchRow(app, subtitle: L(i < search.addedCount ? "Recently added" : "Recently opened"))
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+                Text(verbatim: L(search.query.isEmpty ? "All applications" : "Search results"))
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(search.results) { app in searchRow(app).id(app.id) }
+                            if search.results.isEmpty && search.suggestions.isEmpty {
+                                Text(verbatim: L(search.loading ? "Loading applications…" : "No matching applications"))
+                                    .foregroundStyle(.secondary).padding()
+                            }
+                        }
+                    }
+                    .onChange(of: search.selected) { id in
+                        if let id { proxy.scrollTo(id) }
+                    }
+                }
+                Divider()
+                Text("↑ ↓  Select     ↩  Open     Esc  Close")
+                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .padding(12).frame(maxHeight: 350)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 15))
+            .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(Color.primary.opacity(0.12)))
+            .shadow(color: .black.opacity(0.22), radius: 12, y: 5)
+        }
+    }
+
+    private func searchRow(_ app: LocalApplication, subtitle: String? = nil) -> some View {
+        HStack(spacing: 9) {
+            Image(nsImage: app.icon).resizable().scaledToFit().frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: app.name).lineLimit(1)
+                if let subtitle { Text(verbatim: subtitle).font(.caption).foregroundStyle(.secondary) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(7)
+        .background(search.selected == app.id ? Color.primary.opacity(0.08) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 5, coordinateSpace: .named("launcherPanel"))
+            .onChanged { drag in
+                appDrag = app
+                appDragPoint = drag.location
+                let slot = Self.dropSlot(at: drag.location, frames: appKeyFrames)
+                let occupied = slot == nil || state.launchers.contains { $0.slot == slot }
+                (occupied ? NSCursor.operationNotAllowed : NSCursor.dragCopy).set()
+            }
+            .onEnded { drag in
+                defer { appDrag = nil; NSCursor.arrow.set() }
+                guard let slot = Self.dropSlot(at: drag.location, frames: appKeyFrames),
+                      !state.launchers.contains(where: { $0.slot == slot }) else { return }
+                if state.onBindApplication?(app, slot) == true { search.close() }
+                else { bindFailed = true }
+            }.exclusively(before: TapGesture().onEnded { search.onOpen?(app) }))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { search.onOpen?(app) }
     }
 
     private func keyCap(key: String, index: Int, width: CGFloat) -> some View {
@@ -175,6 +316,7 @@ struct ContentView: View {
         })
         .background(GeometryReader { geometry in
             Color.clear.preference(key: KeyFrames.self, value: [index: geometry.frame(in: .named("keyboard"))])
+                .preference(key: ApplicationKeyFrames.self, value: [index: geometry.frame(in: .named("launcherPanel"))])
         })
         .contextMenu {
             Button(LocalizedStringKey(item == nil ? "Bind Action…" : "Edit Binding…")) { state.editingSlot = index }
@@ -222,6 +364,13 @@ struct ContentView: View {
         .padding(.horizontal, 30)
     }
 
+}
+
+private struct ApplicationKeyFrames: PreferenceKey {
+    static let defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
 }
 
 private struct KeyFrames: PreferenceKey {

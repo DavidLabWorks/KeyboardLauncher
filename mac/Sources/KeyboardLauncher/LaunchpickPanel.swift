@@ -25,7 +25,7 @@ class LaunchpickPanel: NSPanel {
         switch event.type {
         case .leftMouseDown:
             let header = NSRect(x: 0, y: frame.height - 76,
-                                width: max(0, frame.width - 84), height: 76)
+                                width: max(0, frame.width - 140), height: 76)
             guard allowsHeaderDragging, header.contains(event.locationInWindow) else { return false }
             dragOffset = event.locationInWindow
             NSCursor.closedHand.push()

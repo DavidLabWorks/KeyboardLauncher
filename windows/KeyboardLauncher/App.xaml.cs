@@ -76,11 +76,27 @@ public partial class App : Application
             }
             Exit(); return;
         }
+        activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\KeyboardLauncher.Activate." + Environment.UserName);
         instance = new Mutex(true, "Local\\KeyboardLauncher.Windows." + Environment.UserName, out bool created);
         if (!created)
         {
-            try { using var signal = EventWaitHandle.OpenExisting("Local\\KeyboardLauncher.Activate." + Environment.UserName); signal.Set(); }
-            catch (WaitHandleCannotBeOpenedException) { Native.MessageBoxW(0, L.T("指间 · Keyboard Launcher 正在启动，请稍后重试。"), DisplayName, 0x40); }
+            using var current = System.Diagnostics.Process.GetCurrentProcess();
+            foreach (var process in System.Diagnostics.Process.GetProcessesByName(current.ProcessName))
+            {
+                using (process)
+                {
+                    try
+                    {
+                        if (process.Id != current.Id && process.SessionId == current.SessionId &&
+                            string.Equals(process.MainModule?.FileName, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase))
+                            Native.AllowSetForegroundWindow((uint)process.Id);
+                    }
+                    catch (InvalidOperationException) { } // The other instance exited.
+                    catch (System.ComponentModel.Win32Exception) { }
+                }
+            }
+            activationEvent.Set();
+            activationEvent.Dispose(); activationEvent = null;
             instance.Dispose(); instance = null; Exit(); return;
         }
         if (!StoreIntegration.IsPackaged)
@@ -95,10 +111,12 @@ public partial class App : Application
             L.Language = Config.Language;
             panel = new PanelWindow(this);
             await Licensing.InitializeAsync(panel.Handle, panel.DispatcherQueue);
-            activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\KeyboardLauncher.Activate." + Environment.UserName);
-            activationWait = ThreadPool.RegisterWaitForSingleObject(activationEvent, (_, _) => panel.DispatcherQueue.TryEnqueue(() => panel.Show()), null, Timeout.Infinite, false);
+            var dispatcher = panel.DispatcherQueue;
+            activationWait = ThreadPool.RegisterWaitForSingleObject(activationEvent, (_, _) => dispatcher.TryEnqueue(panel.Show), null, Timeout.Infinite, false);
             desktop = new DesktopIntegration(panel.Handle, panel.DispatcherQueue);
             desktop.Toggle += () => panel.Toggle();
+            desktop.TapOpenRequested += panel.ShowFromTap;
+            desktop.TrayOpenRequested += panel.Show;
             desktop.TrayMenuRequested += ShowTrayMenu;
             desktop.PanelKeyPressed += panel.HandleNativeKey;
             try { desktop.Configure(Config); }
@@ -115,6 +133,7 @@ public partial class App : Application
             if (Environment.GetCommandLineArgs().Contains("--tray-menu-smoke-test")) RunTrayMenuSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--theme-smoke-test")) RunThemeSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--control-smoke-test")) RunControlSmokeTest();
+            if (Environment.GetCommandLineArgs().Contains("--triple-tap-smoke-test")) RunTripleTapSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--panel-smoke-test")) RunPanelSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--unbind-smoke-test")) RunUnbindSmokeTest();
             if (Environment.GetCommandLineArgs().Contains("--drag-smoke-test")) RunDragSmokeTest();
@@ -278,7 +297,7 @@ public partial class App : Application
             foreach (var key in new ushort[] { 0xA2, 0xA3, 0xA4, 0xA5, 0xA0, 0xA1, 0x20 })
             {
                 var before = count;
-                desktop.Configure(Config with { DoubleTapKey = key switch { 0xA2 => "leftControl", 0xA3 => "rightControl", 0xA4 => "leftAlt", 0xA5 => "rightAlt", 0xA0 => "leftShift", 0xA1 => "rightShift", _ => "space" } });
+                desktop.Configure(Config with { DoubleTapAction = "toggle", TripleTapKey = null, DoubleTapKey = key switch { 0xA2 => "leftControl", 0xA3 => "rightControl", 0xA4 => "leftAlt", 0xA5 => "rightAlt", 0xA0 => "leftShift", 0xA1 => "rightShift", _ => "space" } });
                 // Batch input so rendering the panel cannot stretch the simulated double-tap interval.
                 var inputs = new uint[] { 0, 2, 0, 2 }.Select(flags => new Native.Input
                 {
@@ -296,7 +315,7 @@ public partial class App : Application
             // Real input must still reach the hook while the UI is busy for
             // longer than Windows' maximum low-level hook timeout (one second).
             panel.Hide(false);
-            desktop.Configure(Config with { DoubleTapKey = "leftControl" });
+            desktop.Configure(Config with { DoubleTapAction = "toggle", TripleTapKey = null, DoubleTapKey = "leftControl" });
             var beforeStall = count;
             var sender = Task.Run(() =>
             {
@@ -316,7 +335,7 @@ public partial class App : Application
             foreach (var lostKey in new uint[] { 0x41, 0xA2 })
             {
                 var beforeRecovery = count;
-                desktop.Configure(Config with { DoubleTapKey = "leftControl" });
+                desktop.Configure(Config with { DoubleTapAction = "toggle", TripleTapKey = null, DoubleTapKey = "leftControl" });
                 desktop.SimulateLostKeyUpForSmokeTest(lostKey);
                 var inputs = new uint[] { 0, 2, 0, 2 }.Select(flags => new Native.Input
                 {
@@ -332,6 +351,48 @@ public partial class App : Application
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { desktop.Toggle -= Count; Quit(); }
+    }
+
+    private async void RunTripleTapSmokeTest()
+    {
+        var report = Path.Combine(AppContext.BaseDirectory, "triple-tap-smoke-test.txt");
+        int doubles = 0;
+        var triples = new List<(bool search, bool focused)>();
+        void Double() => doubles++;
+        void Triple(bool search) => triples.Add((search, panel!.HasSearchFocus));
+        desktop!.Toggle += Double;
+        desktop.TapOpenRequested += Triple;
+        try
+        {
+            async Task Tap(int times)
+            {
+                var inputs = Enumerable.Range(0, times * 2).Select(i => new Native.Input
+                {
+                    Type = 1, Data = new() { Keyboard = new() { Key = 0xA2, Flags = (uint)(i % 2 * 2), ExtraInfo = 0x54455354 } }
+                }).ToArray();
+                if (Native.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<Native.Input>()) != inputs.Length)
+                    throw new Exception("Gesture input rejected");
+                await Task.Delay(650);
+            }
+            var config = Config with { DoubleTapAction = "toggle", DoubleTapKey = "control", TripleTapKey = "leftControl", TripleTapAction = "panel" };
+            desktop.Configure(config);
+            await Tap(2);
+            if (doubles != 1 || triples.Count != 0) throw new Exception("Standalone double tap did not fire exactly once");
+            await Tap(3);
+            desktop.Configure(config with { TripleTapAction = "search" });
+            await Tap(3);
+            if (doubles != 1 || !triples.SequenceEqual([(false, false), (true, true)])) throw new Exception("Triple-tap action or search focus failed");
+            panel!.Hide(false);
+            triples.Clear();
+            desktop.Configure(config with { DoubleTapAction = "panel", TripleTapKey = null });
+            await Tap(2);
+            desktop.Configure(config with { DoubleTapAction = "search" });
+            await Tap(2);
+            if (doubles != 1 || !triples.SequenceEqual([(false, false), (true, true)])) throw new Exception("Double-tap panel or focused search failed");
+            File.WriteAllText(report, "PASS: double-tap toggle, open and focused search, with independent same-key triple-tap actions.");
+        }
+        catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
+        finally { desktop.Toggle -= Double; desktop.TapOpenRequested -= Triple; Quit(); }
     }
 
     private async void RunDragSmokeTest()
@@ -382,24 +443,15 @@ public partial class App : Application
             var removeControl = ((Microsoft.UI.Xaml.Controls.Grid)firstKey.Parent).Children.OfType<Microsoft.UI.Xaml.Controls.Button>().Last();
             if (removeControl.Visibility != Visibility.Visible) throw new Exception("Keyboard focus did not reveal removal");
             panel.RemoveBinding(0, value => Config = value); await Task.Delay(200);
-            if (!panel.CanUndoRemoval || Config.At(0) != null) throw new Exception("Removal did not expose Undo");
+            if (Config.At(0) != null) throw new Exception("Key is still bound");
             var after = panel.KeyVisualsForSmokeTest();
             if (firstMenu.Items[1].Visibility != Visibility.Collapsed)
                 throw new Exception("Empty key retained its removal action");
             for (int i = 0; i < before.Length; i++)
                 if (i != 3 && !ReferenceEquals(before[i], after[i])) throw new Exception($"Unrelated visual recreated at {i}");
             if (ReferenceEquals(before[3], after[3])) throw new Exception("Removed binding was not updated");
-            Config = Config.Bind(1, Config.At(1)! with { Name = "Edited after removal" });
-            panel.UndoRemoval(value => Config = value);
-            if (panel.CanUndoRemoval || Config.At(0)?.Name != "Test" || Config.At(1)?.Name != "Edited after removal")
-                throw new Exception("Undo failed to restore the removed binding or preserve another edit");
-            panel.RemoveBinding(0, value => Config = value);
-            Config = Config.Bind(0, new() { Name = "Replacement", Exec = "cmd.exe" });
-            panel.Refresh();
-            if (panel.CanUndoRemoval) throw new Exception("Stale Undo remained available after slot replacement");
-            panel.UndoRemoval(value => Config = value);
-            if (Config.At(0)?.Name != "Replacement") throw new Exception("Undo overwrote a replacement binding");
-            File.WriteAllText(report, "PASS: keyboard focus reveals removal, context-menu action follows binding state; unbinding preserves unrelated visuals, exposes Undo, restores the removed binding while preserving subsequent edits, and cancels Undo when its slot is replaced. User configuration unchanged.");
+            if (Config.At(1)?.Name != "Unchanged") throw new Exception("Unbinding changed another key");
+            File.WriteAllText(report, "PASS: unbinding cleared the selected key and preserved other bindings and visuals.");
         }
         catch (Exception ex) { File.WriteAllText(report, "FAIL: " + ex); }
         finally { Config = original; Quit(); }

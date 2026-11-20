@@ -20,6 +20,9 @@ public sealed record LauncherConfig
     public string Shortcut { get; set; } = "ctrl+shift+space";
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? DoubleTapKey { get; set; } = "control";
+    public string DoubleTapAction { get; set; } = "toggle";
+    public string? TripleTapKey { get; set; }
+    public string TripleTapAction { get; set; } = "search";
     public bool SuppressSystemShortcut { get; set; }
     public string Language { get; set; } = "en";
     public string Theme { get; set; } = "system";
@@ -52,6 +55,10 @@ public sealed record LauncherConfig
     {
         if (!string.IsNullOrWhiteSpace(Shortcut)) _ = Hotkey.Parse(Shortcut);
         if (DoubleTapKey is not (null or "" or "control" or "alt" or "shift" or "leftControl" or "rightControl" or "leftAlt" or "rightAlt" or "leftShift" or "rightShift" or "space")) throw new FormatException(L.T("请选择 Ctrl、Alt、Shift 或 Space 作为双击按键。"));
+        if (TripleTapKey is not (null or "" or "control" or "alt" or "shift" or "leftControl" or "rightControl" or "leftAlt" or "rightAlt" or "leftShift" or "rightShift" or "space"))
+            throw new FormatException(L.T("请选择 Ctrl、Alt、Shift 或 Space 作为三击按键。"));
+        if (DoubleTapAction is not ("toggle" or "panel" or "search")) throw new FormatException(L.T("未知的双击动作。"));
+        if (TripleTapAction is not ("panel" or "search")) throw new FormatException(L.T("未知的三击动作。"));
         if (Language is not ("en" or "zh-CN")) throw new FormatException(L.T("未知语言。"));
         if (Theme is not ("system" or "light" or "dark")) throw new FormatException(L.T("未知主题。"));
         if (Launchers is null || Launchers.Count > 3800) throw new FormatException(L.T("绑定数量超出限制。"));

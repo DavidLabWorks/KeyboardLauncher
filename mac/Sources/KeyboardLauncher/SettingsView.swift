@@ -41,6 +41,8 @@ struct EditableLauncher: Identifiable, Equatable {
         if let shortcut = config.keyboardShortcut {
             l.actionType = .keyboardShortcut
             l.keyboardShortcut = shortcut
+        } else if config.actionType == "app", let path = config.targetPath {
+            l.appName = path
         } else if config.actionType == "file", let path = config.targetPath {
             l.actionType = .openFile
             l.filePath = path
@@ -79,12 +81,14 @@ struct EditableLauncher: Identifiable, Equatable {
         let exec: String
         switch actionType {
         case .openApp:
+            let quotedApp = appName.replacingOccurrences(of: "'", with: "'\"'\"'")
+            let quotedArgs = appArgs.replacingOccurrences(of: "'", with: "'\"'\"'")
             if appName.isEmpty {
                 exec = ""
             } else if appArgs.isEmpty {
-                exec = "open -a '\(appName)'"
+                exec = "open -a '\(quotedApp)'"
             } else {
-                exec = "open -a '\(appName)' '\(appArgs)'"
+                exec = "open -a '\(quotedApp)' '\(quotedArgs)'"
             }
         case .openFile, .openFolder:
             let path = actionType == .openFile ? filePath : folderPath
@@ -106,6 +110,9 @@ struct EditableLauncher: Identifiable, Equatable {
         case .custom: icon = iconValue.isEmpty ? nil : iconValue
         }
 
+        if actionType == .openApp, appName.hasPrefix("/"), appName.hasSuffix(".app"), appArgs.isEmpty {
+            return ConfigLauncher(name: name, exec: exec, icon: icon, actionType: "app", targetPath: appName)
+        }
         return ConfigLauncher(name: name, exec: exec, icon: icon,
                               keyboardShortcut: actionType == .keyboardShortcut ? keyboardShortcut : nil,
                               actionType: actionType == .openFile ? "file" : actionType == .openFolder ? "folder" : nil,
@@ -115,6 +122,7 @@ struct EditableLauncher: Identifiable, Equatable {
     func resolvedIcon() -> NSImage {
         switch iconMode {
         case .auto:
+            if actionType == .openApp, appName.hasPrefix("/") { return NSWorkspace.shared.icon(forFile: appName) }
             if actionType == .openFile || actionType == .openFolder {
                 let path = actionType == .openFile ? filePath : folderPath
                 if !path.isEmpty { return NSWorkspace.shared.icon(forFile: (path as NSString).expandingTildeInPath) }
@@ -238,6 +246,9 @@ class SettingsState: ObservableObject {
     @Published var shortcut: String = "cmd+shift+space"
     @Published var suppressSystemShortcut: Bool = false
     @Published var doubleTapKey = ""
+    @Published var tripleTapKey = ""
+    @Published var doubleTapAction = "toggle"
+    @Published var tripleTapAction = "search"
     @Published var spotlightShortcut: String = ""
     var columns: Int = 4
 
@@ -245,6 +256,9 @@ class SettingsState: ObservableObject {
         let config = LaunchpickConfig.load()
         shortcut = config.shortcut
         doubleTapKey = config.doubleTapKey ?? ""
+        tripleTapKey = config.tripleTapKey ?? ""
+        doubleTapAction = config.doubleTapAction ?? "toggle"
+        tripleTapAction = config.tripleTapAction ?? "search"
         suppressSystemShortcut = config.suppressSystemShortcut ?? false
         spotlightShortcut = config.spotlightShortcut ?? ""
         columns = config.columns ?? 4
@@ -257,6 +271,9 @@ class SettingsState: ObservableObject {
         LaunchpickConfig.update { config in
             config.shortcut = shortcut
             config.doubleTapKey = doubleTapKey.isEmpty ? nil : doubleTapKey
+            config.tripleTapKey = tripleTapKey.isEmpty ? nil : tripleTapKey
+            config.doubleTapAction = doubleTapAction
+            config.tripleTapAction = tripleTapAction
             config.suppressSystemShortcut = suppressSystemShortcut
             config.spotlightShortcut = spotlightShortcut.isEmpty ? nil : spotlightShortcut
             config.columns = columns
@@ -428,6 +445,7 @@ struct ShortcutRecorderView: NSViewRepresentable {
     @Environment(\.locale) private var locale
     @Binding var shortcut: String
     var singleKeyOnly = false
+    var triple = false
     var onSave: () -> Void
 
     func makeNSView(context: Context) -> ShortcutRecorderNSView {
@@ -436,7 +454,7 @@ struct ShortcutRecorderView: NSViewRepresentable {
         view.singleKeyOnly = singleKeyOnly
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.button)
-        view.setAccessibilityLabel(L(singleKeyOnly ? "Record Double-Tap Key" : "Record Shortcut"))
+        view.setAccessibilityLabel(L(singleKeyOnly ? (triple ? "Record Triple-Tap Key" : "Record Double-Tap Key") : "Record Shortcut"))
         view.onChange = { newShortcut in
             shortcut = newShortcut
             onSave()
@@ -446,7 +464,7 @@ struct ShortcutRecorderView: NSViewRepresentable {
 
     func updateNSView(_ nsView: ShortcutRecorderNSView, context: Context) {
         _ = locale
-        nsView.setAccessibilityLabel(L(singleKeyOnly ? "Record Double-Tap Key" : "Record Shortcut"))
+        nsView.setAccessibilityLabel(L(singleKeyOnly ? (triple ? "Record Triple-Tap Key" : "Record Double-Tap Key") : "Record Shortcut"))
         nsView.shortcut = shortcut
         nsView.setAccessibilityValue(shortcut.isEmpty ? L("Not set") : shortcut)
         nsView.needsDisplay = true
@@ -794,26 +812,18 @@ struct SettingsDetailView: View {
                         }
                     }
                     Divider().padding(.vertical, 2)
-                    HStack(spacing: 20) {
-                        settingLabel("Double-tap key", detail: "Tap twice to show or hide.")
-                        Spacer(minLength: 12)
-                        VStack(alignment: .trailing, spacing: 6) {
-                            ShortcutRecorderView(shortcut: $state.doubleTapKey, singleKeyOnly: true) { state.save() }
-                                .frame(width: 200, height: 32)
-                            if !state.doubleTapKey.isEmpty {
-                                Button("Clear") { state.doubleTapKey = ""; state.save() }
-                                    .buttonStyle(.borderless)
-                                    .foregroundStyle(.secondary)
-                                    .font(.caption)
-                            }
-                        }
+                    tapSettings(triple: false)
+                    Divider().padding(.vertical, 2)
+                    tapSettings(triple: true)
+                    if !state.doubleTapKey.isEmpty,
+                       state.doubleTapKey.split(separator: ":").first == state.tripleTapKey.split(separator: ":").first {
+                        Text("After the second release, wait up to 400 ms for a third tap.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("Supports modifier keys. Letters still type in the active app.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
                     if !accessibilityGranted {
                         HStack(spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                            Text("Allow Accessibility access to use double-tap.")
+                            Text("Allow Accessibility access to use tap shortcuts.")
                                 .font(.callout)
                             Spacer(minLength: 0)
                             Button("Open System Settings") {
@@ -903,6 +913,28 @@ struct SettingsDetailView: View {
 
     private var groupBackground: Color {
         colorScheme == .dark ? Color(white: 0.155) : Color(nsColor: .controlBackgroundColor)
+    }
+
+    private func tapSettings(triple: Bool) -> some View {
+        let key = triple ? $state.tripleTapKey : $state.doubleTapKey
+        let action = triple ? $state.tripleTapAction : $state.doubleTapAction
+        return VStack(spacing: 10) {
+            HStack {
+                Text(verbatim: L(triple ? "Triple-tap key" : "Double-tap key"))
+                Spacer()
+                if !key.wrappedValue.isEmpty {
+                    Button("Clear") { key.wrappedValue = ""; state.save() }.buttonStyle(.borderless)
+                }
+                ShortcutRecorderView(shortcut: key, singleKeyOnly: true, triple: triple) { state.save() }
+                    .frame(width: 200, height: 32)
+            }
+            Picker(selection: action) {
+                if !triple { Text("Toggle panel").tag("toggle") }
+                Text("Open panel").tag("panel")
+                Text("Open panel and search").tag("search")
+            } label: { Text(verbatim: L(triple ? "Triple-tap action" : "Double-tap action")) }
+            .onChange(of: action.wrappedValue) { _ in state.save() }
+        }
     }
 
     private func settingLabel(_ title: String, detail: String) -> some View {
